@@ -1,3 +1,5 @@
+import math
+
 class Node:
     def __init__(self, symbol: str, arity: int) -> None:
         self.symbol = symbol
@@ -34,6 +36,46 @@ class Node:
             child._encoding(nodes, depth + 1, max_depth)
         for _ in range(self.arity - len(self.children)):
             nodes.append('PAD')
+
+    def evaluate(self, data: dict):
+        if self.is_leaf:
+            if 'X' in self.symbol:
+                index = int(self.symbol.split('X')[1])
+                return data[index]
+            else:
+                try:
+                    return float(self.symbol)
+                except ValueError:
+                    raise ValueError(f"Unknown variable or constant: {self.symbol}")
+        else:
+            child_values = [child.evaluate(data) for child in self.children]
+            try:
+                if self.symbol == '+':
+                    return child_values[0] + child_values[1]
+                elif self.symbol == '-':
+                    return child_values[0] - child_values[1]
+                elif self.symbol == '*':
+                    return child_values[0] * child_values[1]
+                elif self.symbol == '/':
+                    if child_values[1] == 0:
+                        raise ZeroDivisionError("Division by zero")
+                    return child_values[0] / child_values[1]
+                elif self.symbol == 'sin':
+                    return math.sin(child_values[0])
+                elif self.symbol == 'cos':
+                    return math.cos(child_values[0])
+                elif self.symbol == 'exp':
+                    return math.exp(child_values[0])
+                elif self.symbol == 'log':
+                    if child_values[0] <= 0:
+                        raise ValueError("Logarithm of non-positive number")
+                    return math.log(child_values[0])
+                elif self.symbol == '^':
+                    return child_values[0] ** child_values[1]
+                else:
+                    raise ValueError(f"Unknown operator: {self.symbol}")
+            except Exception as e:
+                raise ValueError(f"Error evaluating {self.symbol}: {e}")
 
 class Tree:
     def __init__(self, library: dict[str, int]) -> None:
@@ -75,4 +117,9 @@ class Tree:
     def reset(self) -> None:
         self.root = None
         self.current_nodes = []
+
+    def evaluate(self, variable_values):
+        if not self.complete():
+            raise ValueError("Cannot evaluate an incomplete tree")
+        return self.root.evaluate(variable_values)
 
