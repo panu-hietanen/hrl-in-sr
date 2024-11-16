@@ -1,4 +1,4 @@
-from lib.tree import Tree, Node
+from libs.tree import Tree, Node
 import math
 import torch
 from torch.nn import MSELoss
