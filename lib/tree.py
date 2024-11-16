@@ -54,8 +54,8 @@ class Tree:
             if node.arity > 0:
                 self.current_nodes.append(node)
         else:
-            if not self.current_nodes:
-                raise ValueError("No nodes available to add a child to.")
+            if self.complete():
+                raise ValueError("Tree is already complete.")
             parent_node = self.current_nodes[-1]
             parent_node.add_child(node)
             if node.arity > 0:
@@ -71,4 +71,8 @@ class Tree:
             return ['PAD'] * (2 ** max_depth - 1)
         encoding = self.root.encode(depth=0, max_depth=max_depth)
         return encoding
+    
+    def reset(self) -> None:
+        self.root = None
+        self.current_nodes = []
 
