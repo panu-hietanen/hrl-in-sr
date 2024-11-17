@@ -23,7 +23,7 @@ class Node:
 
     def _encoding(self, nodes: list, depth: int, max_depth: int) -> None:
         if depth > max_depth:
-            nodes.append('MAX')
+            nodes.append('PAD')
             return
         nodes.append(self.symbol)
         if self.is_leaf:

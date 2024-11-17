@@ -17,7 +17,7 @@ class TreeExpression:
         Evaluate the expression over batch data.
         """
         self.expression = expression.copy()
-        if 'MAX' in self.expression:
+        if 'PAD' in self.expression:
             raise ValueError(f'Expression is not complete.')
         self._collect_constants()
         self.pos = 0
@@ -66,8 +66,6 @@ class TreeExpression:
             if index >= self.data.shape[0]:
                 raise ValueError(f"Variable index X{index} out of bounds.")
             return self.data[index]
-        elif token == 'PAD':
-            raise ValueError("Incomplete expression")
         else:
             try:
                 value = float(token)
