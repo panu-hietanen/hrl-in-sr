@@ -95,6 +95,8 @@ class TreeExpression:
         Evaluate the expression over batch data.
         """
         self.expression = expression.copy()
+        if 'PAD' in self.expression:
+            raise ValueError(f'Expression is not complete.')
         self._collect_constants()
         self.pos = 0
         if not self.constants_optimized and self.n_constants > 0:

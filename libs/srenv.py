@@ -5,12 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SREnv:
-    def __init__(self, library: dict[str, int], data: torch.Tensor, target: torch.Tensor, tree_depth: int = 10) -> None:
+    def __init__(self, library: dict[str, int], data: torch.Tensor, target: torch.Tensor, max_depth: int = 10) -> None:
         self.library = library
         self.tree = Tree(self.library)
         self.expression = TreeExpression(data, target)
         self.done = False
-        self.tree_depth = tree_depth
+        self.max_depth = max_depth
 
         self.target = target
         self.data = data
@@ -29,15 +29,15 @@ class SREnv:
             reward = self.get_reward()
         else:
             reward = 0
-        return self.tree.encode(self.tree_depth), reward, self.done
+        return self.tree.encode(self.max_depth), reward, self.done
     
     def get_reward(self) -> float:
-        expression = self.tree.encode(self.tree_depth)
+        expression = self.tree.encode(self.max_depth)
         return 1/ (1 + self.loss(self.expression.evaluate(expression), self.target))
     
     def loss(self, data: torch.Tensor, target: torch.Tensor) -> float:
         return F.mse_loss(data, target)
         
     def get_state(self) -> list[str]:
-        return self.tree.encode(self.tree_depth)
+        return self.tree.encode(self.max_depth)
 
