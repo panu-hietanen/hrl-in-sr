@@ -1,22 +1,57 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.optim as optim
+import random
+from collections import deque
 
-class SymbolicRegressionAgent(nn.Module):
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.memory = deque(maxlen=capacity)
+    
+    def push(self, state: torch.Tensor, action, reward, next_state: torch.Tensor, done):
+        self.memory.append((state.detach(), action, reward, next_state.detach(), done))
+    
+    def sample(self, batch_size):
+        batch = random.sample(self.memory, batch_size)
+        states = [item[0] for item in batch]
+        actions = [item[1] for item in batch]
+        rewards = [item[2] for item in batch]
+        next_states = [item[3] for item in batch]
+        dones = [item[4] for item in batch]
+        return (
+            torch.stack(states),
+            torch.tensor(actions, dtype=torch.long),
+            torch.tensor(rewards, dtype=torch.float32),
+            torch.stack(next_states),
+            torch.tensor(dones, dtype=torch.float32),
+        )
+
+    
+    def __len__(self):
+        return len(self.memory)
+
+class DQNAgent(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, action_size):
-        super(SymbolicRegressionAgent, self).__init__()
+        super(DQNAgent, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
         self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
-        self.policy_head = nn.Linear(hidden_dim, action_size)
-        self.value_head = nn.Linear(hidden_dim, 1)
+        self.fc = nn.Linear(hidden_dim, action_size)
+        self.action_size = action_size
     
-    def forward(self, state, action_mask):
-        x = self.embedding(state)  # Shape: (batch_size, seq_length, embedding_dim)
-        lstm_out, (h_n, c_n) = self.lstm(x)  # h_n: (num_layers, batch_size, hidden_dim)
-        h_n = h_n[-1]  # Get the output of the last LSTM layer
-        logits = self.policy_head(h_n)  # Shape: (batch_size, action_size)
-        # Apply action mask before softmax
-        logits = logits.masked_fill(action_mask == 0, float('-inf'))
-        action_probs = F.softmax(logits, dim=-1)  # Shape: (batch_size, action_size)
-        value = self.value_head(h_n).squeeze(-1)  # Shape: (batch_size,)
-        return action_probs, value
+    def forward(self, state):
+        x = self.embedding(state)
+        lstm_out, (h_n, c_n) = self.lstm(x)
+        h_n = h_n[-1]
+        q_values = self.fc(h_n)
+        return q_values
+
+    def act(self, state, epsilon):
+        if random.random() < epsilon:
+            # Random action
+            action_idx = random.randint(0, self.action_size - 1)
+        else:
+            # Greedy action
+            with torch.no_grad():
+                q_values = self(state)
+                action_idx = torch.argmax(q_values).item()
+        return action_idx
