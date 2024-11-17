@@ -1,4 +1,5 @@
-from libs.tree import Tree, Node, TreeExpression
+from libs.tree import Tree, Node
+from libs.expression import TreeExpression
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,7 +16,8 @@ class SREnv:
         self.data = data
 
     def reset(self) -> list[Node]:
-        self.tree = Tree(self.library)
+        self.tree.reset()
+        self.expression.reset()
         self.done = False
         return self.get_state()
 
