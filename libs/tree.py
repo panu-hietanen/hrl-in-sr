@@ -1,8 +1,6 @@
-import math
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from collections import defaultdict
 
 class Node:
     def __init__(self, symbol: str, arity: int) -> None:
