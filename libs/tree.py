@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from collections import defaultdict
 
 class Node:
     def __init__(self, symbol: str, arity: int) -> None:
@@ -40,51 +41,12 @@ class Node:
         for _ in range(self.arity - len(self.children)):
             nodes.append('PAD')
 
-    def evaluate(self, data: dict):
-        if self.is_leaf:
-            if 'X' in self.symbol:
-                index = int(self.symbol.split('X')[1])
-                return data[index]
-            else:
-                try:
-                    return float(self.symbol)
-                except ValueError:
-                    raise ValueError(f"Unknown variable or constant: {self.symbol}")
-        else:
-            child_values = [child.evaluate(data) for child in self.children]
-            try:
-                if self.symbol == '+':
-                    return child_values[0] + child_values[1]
-                elif self.symbol == '-':
-                    return child_values[0] - child_values[1]
-                elif self.symbol == '*':
-                    return child_values[0] * child_values[1]
-                elif self.symbol == '/':
-                    if child_values[1] == 0:
-                        raise ZeroDivisionError("Division by zero")
-                    return child_values[0] / child_values[1]
-                elif self.symbol == 'sin':
-                    return math.sin(child_values[0])
-                elif self.symbol == 'cos':
-                    return math.cos(child_values[0])
-                elif self.symbol == 'exp':
-                    return math.exp(child_values[0])
-                elif self.symbol == 'log':
-                    if child_values[0] <= 0:
-                        raise ValueError("Logarithm of non-positive number")
-                    return math.log(child_values[0])
-                elif self.symbol == '^':
-                    return child_values[0] ** child_values[1]
-                else:
-                    raise ValueError(f"Unknown operator: {self.symbol}")
-            except Exception as e:
-                raise ValueError(f"Error evaluating {self.symbol}: {e}")
-
 class Tree:
     def __init__(self, library: dict[str, int]) -> None:
         self.root: Node = None
         self.current_nodes: list[Node] = []  # Stack to keep track of nodes needing children
         self.library = library
+        self.evaluator = None
 
     def _create_node(self, action: str) -> Node:
         arity = self.library[action]
@@ -129,11 +91,12 @@ class Tree:
 import numpy as np  # Or import torch if using PyTorch
 
 class ExpressionEvaluator:
-    def __init__(self, data: torch.Tensor, target: torch.Tensor):
+    def __init__(self, data: torch.Tensor, target: torch.Tensor, expression: list[str]):
         self.data = data
         self.target = target
-        self.expression: list[str] = None
-        self.constants = []
+        self.expression = expression
+        self.constants: list[str] = []
+        self.constants_dict: dict[str, int] = {}
         self._collect_constants()
         self.n_vars, self.n_samples = data.shape
 
@@ -148,21 +111,14 @@ class ExpressionEvaluator:
                 self.expression[idx] = const_name
                 const_count += 1
 
-    def evaluate(self, expression):
-        """
-        Evaluate the expression over batch data.
-        :param variable_values: A NumPy array of shape (n_variables, n_samples)
-        :param constant_values: A dictionary mapping constant names to their values
-        :return: A NumPy array of shape (n_samples,)
-        """
-        self.expression = expression
+    def evaluate(self):
         self.pos = 0
         if not self.constants_optimised:
             self._optimise_constants()
         result = self._evaluate_expression()
         return result
 
-    def _evaluate_expression(self):
+    def _evaluate_expression(self, constants):
         if self.pos >= len(self.expression):
             raise ValueError("Incomplete expression")
 
@@ -179,7 +135,7 @@ class ExpressionEvaluator:
         elif token.startswith('C'):
             if token not in self.constant_values:
                 raise ValueError(f"Value for constant '{token}' is not provided.")
-            value = self.constant_values[token]
+            value = constants[token]
             return np.full(self.n_samples, value)
         elif token.startswith('X'):
             # Variable value
@@ -233,7 +189,7 @@ class ExpressionEvaluator:
         def closure():
             optimiser.zero_grad()
             # Prepare constant values as a dictionary
-            constant_values = {self.constants[i]: constants[i] for i in range(n_constants)}
+            self.constant_dict = {self.constants[i]: constants[i] for i in range(n_constants)}
             # Evaluate the expression
             y_pred = self.evaluate()
             # Compute the loss
@@ -244,37 +200,6 @@ class ExpressionEvaluator:
         optimiser.step(closure)
 
         optimized_constants = constants.detach().numpy()
-        return optimized_constants
-
-
-
-
-
-def optimize_constants(evaluator, X, y):
-    n_constants = len(evaluator.constants)
-    # Initialize constants as torch tensors with requires_grad=True
-    constants = torch.randn(n_constants, requires_grad=True)
-    
-    # Convert X and y to torch tensors
-    X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y, dtype=torch.float32)
-    
-    optimizer = optim.LBFGS([constants], max_iter=100)
-    
-    def closure():
-        optimizer.zero_grad()
-        # Prepare constant values as a dictionary
-        constant_values = {evaluator.constants[i]: constants[i] for i in range(n_constants)}
-        # Evaluate the expression
-        y_pred = evaluator.evaluate(X_tensor, constant_values)
-        # Compute the loss
-        loss = F.mse_loss(y_pred, y_tensor)
-        loss.backward()
-        return loss
-
-    optimizer.step(closure)
-    
-    # After optimization, get the optimized constants
-    optimized_constants = constants.detach().numpy()
-    return optimized_constants
+        self.constants = optimized_constants
+        self.constants_optimised = True
 
