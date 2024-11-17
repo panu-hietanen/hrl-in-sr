@@ -11,6 +11,7 @@ class SREnv:
         self.expression = TreeExpression(data, target)
         self.done = False
         self.max_depth = max_depth
+        self.n_vars, self.n_samples = data.shape
 
         self.target = target
         self.data = data
