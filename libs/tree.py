@@ -11,19 +11,17 @@ class Node:
             raise ValueError(f'Arity of symbol must be in 0-2.')
         self.arity = arity
         self.children: list[Node] = []
-
         self.is_leaf = self.arity == 0
-        self.evaluated = None
 
     def complete(self):
         return len(self.children) == self.arity
-    
+
     def add_child(self, child):
         if not self.complete():
             self.children.append(child)
         else:
             raise ValueError(f"Node '{self.symbol}' already has {self.arity} children.")
-        
+
     def encode(self, depth: int, max_depth: int) -> list:
         nodes = []
         self._encoding(nodes, depth, max_depth)
@@ -46,7 +44,6 @@ class Tree:
         self.root: Node = None
         self.current_nodes: list[Node] = []  # Stack to keep track of nodes needing children
         self.library = library
-        self.evaluator = None
 
     def _create_node(self, action: str) -> Node:
         arity = self.library[action]
@@ -72,38 +69,43 @@ class Tree:
 
     def complete(self) -> bool:
         return self.root is not None and not self.current_nodes
-    
+
     def encode(self, max_depth: int) -> list:
         if self.root is None:
             return ['PAD'] * (2 ** max_depth - 1)
         encoding = self.root.encode(depth=0, max_depth=max_depth)
         return encoding
-    
+
     def reset(self) -> None:
         self.root = None
         self.current_nodes = []
 
-    def evaluate(self, variable_values):
-        if not self.complete():
-            raise ValueError("Cannot evaluate an incomplete tree")
-        return self.root.evaluate(variable_values)
-
-import numpy as np  # Or import torch if using PyTorch
-
 class ExpressionEvaluator:
-    def __init__(self, data: torch.Tensor, target: torch.Tensor, expression: list[str]):
+    def __init__(self, data: torch.Tensor, target: torch.Tensor):
         self.data = data
         self.target = target
-        self.expression = expression
+        self.expression: list[str] = None
         self.constants: list[str] = []
-        self.constants_dict: dict[str, int] = {}
-        self._collect_constants()
+        self.optimized_constants: dict[str, float] = {}
         self.n_vars, self.n_samples = data.shape
+        self.constants_optimized = False
 
-        self.constants_optimised = False
+    def evaluate(self, expression: list[str]) -> torch.Tensor:
+        """
+        Evaluate the expression over batch data.
+        """
+        self.expression = expression.copy()
+        # Collect constants after setting the expression
+        self._collect_constants()
+        self.pos = 0
+        if not self.constants_optimized:
+            self._optimize_constants()
+        result = self._evaluate_expression()
+        return result
 
     def _collect_constants(self):
         const_count = 0
+        self.constants = []
         for idx, token in enumerate(self.expression):
             if token == 'C':
                 const_name = f'C{const_count}'
@@ -111,14 +113,7 @@ class ExpressionEvaluator:
                 self.expression[idx] = const_name
                 const_count += 1
 
-    def evaluate(self):
-        self.pos = 0
-        if not self.constants_optimised:
-            self._optimise_constants()
-        result = self._evaluate_expression()
-        return result
-
-    def _evaluate_expression(self, constants):
+    def _evaluate_expression(self) -> torch.Tensor:
         if self.pos >= len(self.expression):
             raise ValueError("Incomplete expression")
 
@@ -133,10 +128,10 @@ class ExpressionEvaluator:
             operand = self._evaluate_expression()
             return self._apply_operator(token, operand)
         elif token.startswith('C'):
-            if token not in self.constant_values:
+            if token not in self.optimized_constants:
                 raise ValueError(f"Value for constant '{token}' is not provided.")
-            value = constants[token]
-            return np.full(self.n_samples, value)
+            value = self.optimized_constants[token]
+            return value.expand(self.n_samples)
         elif token.startswith('X'):
             # Variable value
             index = int(token[1:])
@@ -146,7 +141,7 @@ class ExpressionEvaluator:
         else:
             try:
                 value = float(token)
-                return np.full(self.n_samples, value)
+                return torch.full((self.n_samples,), value)
             except ValueError:
                 raise ValueError(f"Unknown token: {token}")
 
@@ -160,46 +155,46 @@ class ExpressionEvaluator:
                 return operands[0] * operands[1]
             elif operator == '/':
                 denom = operands[1]
-                denom = np.where(denom == 0, 1e-8, denom)  # Avoid division by zero
+                denom = torch.where(denom == 0, torch.tensor(1e-8), denom)  # Avoid division by zero
                 return operands[0] / denom
             elif operator == '^':
                 return operands[0] ** operands[1]
             elif operator == 'sin':
-                return np.sin(operands[0])
+                return torch.sin(operands[0])
             elif operator == 'cos':
-                return np.cos(operands[0])
+                return torch.cos(operands[0])
             elif operator == 'exp':
-                return np.exp(operands[0])
+                return torch.exp(operands[0])
             elif operator == 'log':
                 arg = operands[0]
-                arg = np.where(arg <= 0, 1e-8, arg)  # Avoid log of non-positive numbers
-                return np.log(arg)
+                arg = torch.where(arg <= 0, torch.tensor(1e-8), arg)  # Avoid log of non-positive numbers
+                return torch.log(arg)
             else:
                 raise ValueError(f"Unknown operator: {operator}")
         except Exception as e:
             print(f"Error applying operator '{operator}': {e}")
-            n_samples = operands[0].shape[0]
-            return np.full(n_samples, np.inf)  # Return an array of inf values
-        
-    def _optimise_constants(self):
+            return torch.full((self.n_samples,), float('inf'))
+
+    def _optimize_constants(self):
         n_constants = len(self.constants)
         constants = torch.randn(n_constants, requires_grad=True)
-        optimiser = optim.LBFGS([constants], max_iter=100)
+        optimizer = optim.LBFGS([constants], max_iter=100)
 
         def closure():
-            optimiser.zero_grad()
-            # Prepare constant values as a dictionary
-            self.constant_dict = {self.constants[i]: constants[i] for i in range(n_constants)}
+            optimizer.zero_grad()
+            # Map constants to their current values
+            self.optimized_constants = {self.constants[i]: constants[i] for i in range(n_constants)}
             # Evaluate the expression
-            y_pred = self.evaluate()
+            self.pos = 0  # Reset position before evaluation
+            y_pred = self._evaluate_expression()
             # Compute the loss
             loss = F.mse_loss(y_pred, self.target)
             loss.backward()
             return loss
-        
-        optimiser.step(closure)
 
-        optimized_constants = constants.detach().numpy()
-        self.constants = optimized_constants
-        self.constants_optimised = True
+        optimizer.step(closure)
 
+        # After optimization, store the optimized constants
+        self.optimized_constants = {self.constants[i]: constants[i].detach() for i in range(n_constants)}
+        self.constants = [i for i in self.optimized_constants.values()]
+        self.constants_optimized = True
