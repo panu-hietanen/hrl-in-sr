@@ -80,15 +80,15 @@ class Tree:
         self.root = None
         self.current_nodes = []
 
-class ExpressionEvaluator:
-    def __init__(self, data: torch.Tensor, target: torch.Tensor):
+class TreeExpression:
+    def __init__(self, data: torch.Tensor, target: torch.Tensor) -> None:
         self.data = data
         self.target = target
         self.expression: list[str] = None
-        self.constants: list[str] = []
-        self.optimized_constants: dict[str, torch.Tensor] = {}
+        self.optimized_constants: torch.Tensor = None
         self.n_vars, self.n_samples = data.shape
         self.constants_optimized = False
+        self.n_constants = 0  # Number of constants in the expression
 
     def evaluate(self, expression: list[str]) -> torch.Tensor:
         """
@@ -97,13 +97,13 @@ class ExpressionEvaluator:
         self.expression = expression.copy()
         self._collect_constants()
         self.pos = 0
-        if not self.constants_optimized:
+        if not self.constants_optimized and self.n_constants > 0:
             self._optimize_constants()
         self.pos = 0  # Reset position before evaluation
         result = self._evaluate_expression(self.optimized_constants)
         return result
 
-    def _collect_constants(self):
+    def _collect_constants(self) -> None:
         const_count = 0
         self.constants = []
         for idx, token in enumerate(self.expression):
@@ -112,8 +112,9 @@ class ExpressionEvaluator:
                 self.constants.append(const_name)
                 self.expression[idx] = const_name
                 const_count += 1
+        self.n_constants = const_count
 
-    def _evaluate_expression(self, optimized_constants: dict[str, torch.Tensor]) -> torch.Tensor:
+    def _evaluate_expression(self, constants: torch.Tensor) -> torch.Tensor:
         if self.pos >= len(self.expression):
             raise ValueError("Incomplete expression")
 
@@ -121,16 +122,19 @@ class ExpressionEvaluator:
         self.pos += 1
 
         if token in ['+', '-', '*', '/', '^']:
-            left = self._evaluate_expression(optimized_constants)
-            right = self._evaluate_expression(optimized_constants)
+            left = self._evaluate_expression(constants)
+            right = self._evaluate_expression(constants)
             return self._apply_operator(token, left, right)
         elif token in ['sin', 'cos', 'exp', 'log']:
-            operand = self._evaluate_expression(optimized_constants)
+            operand = self._evaluate_expression(constants)
             return self._apply_operator(token, operand)
         elif token.startswith('C'):
-            if token not in optimized_constants:
-                raise ValueError(f"Value for constant '{token}' is not provided.")
-            value = optimized_constants[token]
+            # Extract the index from the token
+            index = int(token[1:])
+            if index >= len(constants):
+                raise ValueError(f"Constant index {index} out of bounds.")
+            value = constants[index]
+            # Expand value to match the number of samples
             return value.expand(self.n_samples)
         elif token.startswith('X'):
             # Variable value
@@ -145,7 +149,7 @@ class ExpressionEvaluator:
             except ValueError:
                 raise ValueError(f"Unknown token: {token}")
 
-    def _apply_operator(self, operator, *operands):
+    def _apply_operator(self, operator: str, *operands) -> torch.Tensor:
         try:
             if operator == '+':
                 return operands[0] + operands[1]
@@ -175,19 +179,14 @@ class ExpressionEvaluator:
             print(f"Error applying operator '{operator}': {e}")
             return torch.full((self.n_samples,), float('inf'))
 
-    def _optimize_constants(self):
-        n_constants = len(self.constants)
-        constants = torch.randn(n_constants, requires_grad=True)
+    def _optimize_constants(self) -> None:
+        constants = torch.randn(self.n_constants, requires_grad=True)
         optimizer = optim.LBFGS([constants], max_iter=100)
 
         def closure():
             optimizer.zero_grad()
-            # Map constants to their current values
-            optimized_constants = {self.constants[i]: constants[i] for i in range(n_constants)}
-            # Evaluate the expression
             self.pos = 0  # Reset position before evaluation
-            y_pred = self._evaluate_expression(optimized_constants)
-            # Compute the loss
+            y_pred = self._evaluate_expression(constants)
             loss = F.mse_loss(y_pred, self.target)
             loss.backward()
             return loss
@@ -195,6 +194,6 @@ class ExpressionEvaluator:
         optimizer.step(closure)
 
         # After optimization, store the optimized constants
-        self.optimized_constants = {self.constants[i]: constants[i].detach() for i in range(n_constants)}
-        self.constants = [i for i in self.optimized_constants.values()]
+        self.optimized_constants = constants.detach().clone()
         self.constants_optimized = True
+
