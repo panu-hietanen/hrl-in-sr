@@ -86,7 +86,7 @@ class ExpressionEvaluator:
         self.target = target
         self.expression: list[str] = None
         self.constants: list[str] = []
-        self.optimized_constants: dict[str, float] = {}
+        self.optimized_constants: dict[str, torch.Tensor] = {}
         self.n_vars, self.n_samples = data.shape
         self.constants_optimized = False
 
@@ -95,12 +95,12 @@ class ExpressionEvaluator:
         Evaluate the expression over batch data.
         """
         self.expression = expression.copy()
-        # Collect constants after setting the expression
         self._collect_constants()
         self.pos = 0
         if not self.constants_optimized:
             self._optimize_constants()
-        result = self._evaluate_expression()
+        self.pos = 0  # Reset position before evaluation
+        result = self._evaluate_expression(self.optimized_constants)
         return result
 
     def _collect_constants(self):
@@ -113,7 +113,7 @@ class ExpressionEvaluator:
                 self.expression[idx] = const_name
                 const_count += 1
 
-    def _evaluate_expression(self) -> torch.Tensor:
+    def _evaluate_expression(self, optimized_constants: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.pos >= len(self.expression):
             raise ValueError("Incomplete expression")
 
@@ -121,16 +121,16 @@ class ExpressionEvaluator:
         self.pos += 1
 
         if token in ['+', '-', '*', '/', '^']:
-            left = self._evaluate_expression()
-            right = self._evaluate_expression()
+            left = self._evaluate_expression(optimized_constants)
+            right = self._evaluate_expression(optimized_constants)
             return self._apply_operator(token, left, right)
         elif token in ['sin', 'cos', 'exp', 'log']:
-            operand = self._evaluate_expression()
+            operand = self._evaluate_expression(optimized_constants)
             return self._apply_operator(token, operand)
         elif token.startswith('C'):
-            if token not in self.optimized_constants:
+            if token not in optimized_constants:
                 raise ValueError(f"Value for constant '{token}' is not provided.")
-            value = self.optimized_constants[token]
+            value = optimized_constants[token]
             return value.expand(self.n_samples)
         elif token.startswith('X'):
             # Variable value
@@ -155,7 +155,7 @@ class ExpressionEvaluator:
                 return operands[0] * operands[1]
             elif operator == '/':
                 denom = operands[1]
-                denom = torch.where(denom == 0, torch.tensor(1e-8), denom)  # Avoid division by zero
+                denom = torch.where(denom == 0, torch.tensor(1e-8, device=denom.device), denom)
                 return operands[0] / denom
             elif operator == '^':
                 return operands[0] ** operands[1]
@@ -167,7 +167,7 @@ class ExpressionEvaluator:
                 return torch.exp(operands[0])
             elif operator == 'log':
                 arg = operands[0]
-                arg = torch.where(arg <= 0, torch.tensor(1e-8), arg)  # Avoid log of non-positive numbers
+                arg = torch.where(arg <= 0, torch.tensor(1e-8, device=arg.device), arg)
                 return torch.log(arg)
             else:
                 raise ValueError(f"Unknown operator: {operator}")
@@ -183,10 +183,10 @@ class ExpressionEvaluator:
         def closure():
             optimizer.zero_grad()
             # Map constants to their current values
-            self.optimized_constants = {self.constants[i]: constants[i] for i in range(n_constants)}
+            optimized_constants = {self.constants[i]: constants[i] for i in range(n_constants)}
             # Evaluate the expression
             self.pos = 0  # Reset position before evaluation
-            y_pred = self._evaluate_expression()
+            y_pred = self._evaluate_expression(optimized_constants)
             # Compute the loss
             loss = F.mse_loss(y_pred, self.target)
             loss.backward()
