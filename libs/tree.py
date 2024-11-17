@@ -1,4 +1,7 @@
 import math
+import torch
+import torch.nn.functional as F
+import torch.optim as optim
 
 class Node:
     def __init__(self, symbol: str, arity: int) -> None:
@@ -122,4 +125,156 @@ class Tree:
         if not self.complete():
             raise ValueError("Cannot evaluate an incomplete tree")
         return self.root.evaluate(variable_values)
+
+import numpy as np  # Or import torch if using PyTorch
+
+class ExpressionEvaluator:
+    def __init__(self, data: torch.Tensor, target: torch.Tensor):
+        self.data = data
+        self.target = target
+        self.expression: list[str] = None
+        self.constants = []
+        self._collect_constants()
+        self.n_vars, self.n_samples = data.shape
+
+        self.constants_optimised = False
+
+    def _collect_constants(self):
+        const_count = 0
+        for idx, token in enumerate(self.expression):
+            if token == 'C':
+                const_name = f'C{const_count}'
+                self.constants.append(const_name)
+                self.expression[idx] = const_name
+                const_count += 1
+
+    def evaluate(self, expression):
+        """
+        Evaluate the expression over batch data.
+        :param variable_values: A NumPy array of shape (n_variables, n_samples)
+        :param constant_values: A dictionary mapping constant names to their values
+        :return: A NumPy array of shape (n_samples,)
+        """
+        self.expression = expression
+        self.pos = 0
+        if not self.constants_optimised:
+            self._optimise_constants()
+        result = self._evaluate_expression()
+        return result
+
+    def _evaluate_expression(self):
+        if self.pos >= len(self.expression):
+            raise ValueError("Incomplete expression")
+
+        token = self.expression[self.pos]
+        self.pos += 1
+
+        if token in ['+', '-', '*', '/', '^']:
+            left = self._evaluate_expression()
+            right = self._evaluate_expression()
+            return self._apply_operator(token, left, right)
+        elif token in ['sin', 'cos', 'exp', 'log']:
+            operand = self._evaluate_expression()
+            return self._apply_operator(token, operand)
+        elif token.startswith('C'):
+            if token not in self.constant_values:
+                raise ValueError(f"Value for constant '{token}' is not provided.")
+            value = self.constant_values[token]
+            return np.full(self.n_samples, value)
+        elif token.startswith('X'):
+            # Variable value
+            index = int(token[1:])
+            if index >= self.data.shape[0]:
+                raise ValueError(f"Variable index X{index} out of bounds.")
+            return self.data[index]
+        else:
+            try:
+                value = float(token)
+                return np.full(self.n_samples, value)
+            except ValueError:
+                raise ValueError(f"Unknown token: {token}")
+
+    def _apply_operator(self, operator, *operands):
+        try:
+            if operator == '+':
+                return operands[0] + operands[1]
+            elif operator == '-':
+                return operands[0] - operands[1]
+            elif operator == '*':
+                return operands[0] * operands[1]
+            elif operator == '/':
+                denom = operands[1]
+                denom = np.where(denom == 0, 1e-8, denom)  # Avoid division by zero
+                return operands[0] / denom
+            elif operator == '^':
+                return operands[0] ** operands[1]
+            elif operator == 'sin':
+                return np.sin(operands[0])
+            elif operator == 'cos':
+                return np.cos(operands[0])
+            elif operator == 'exp':
+                return np.exp(operands[0])
+            elif operator == 'log':
+                arg = operands[0]
+                arg = np.where(arg <= 0, 1e-8, arg)  # Avoid log of non-positive numbers
+                return np.log(arg)
+            else:
+                raise ValueError(f"Unknown operator: {operator}")
+        except Exception as e:
+            print(f"Error applying operator '{operator}': {e}")
+            n_samples = operands[0].shape[0]
+            return np.full(n_samples, np.inf)  # Return an array of inf values
+        
+    def _optimise_constants(self):
+        n_constants = len(self.constants)
+        constants = torch.randn(n_constants, requires_grad=True)
+        optimiser = optim.LBFGS([constants], max_iter=100)
+
+        def closure():
+            optimiser.zero_grad()
+            # Prepare constant values as a dictionary
+            constant_values = {self.constants[i]: constants[i] for i in range(n_constants)}
+            # Evaluate the expression
+            y_pred = self.evaluate()
+            # Compute the loss
+            loss = F.mse_loss(y_pred, self.target)
+            loss.backward()
+            return loss
+        
+        optimiser.step(closure)
+
+        optimized_constants = constants.detach().numpy()
+        return optimized_constants
+
+
+
+
+
+def optimize_constants(evaluator, X, y):
+    n_constants = len(evaluator.constants)
+    # Initialize constants as torch tensors with requires_grad=True
+    constants = torch.randn(n_constants, requires_grad=True)
+    
+    # Convert X and y to torch tensors
+    X_tensor = torch.tensor(X, dtype=torch.float32)
+    y_tensor = torch.tensor(y, dtype=torch.float32)
+    
+    optimizer = optim.LBFGS([constants], max_iter=100)
+    
+    def closure():
+        optimizer.zero_grad()
+        # Prepare constant values as a dictionary
+        constant_values = {evaluator.constants[i]: constants[i] for i in range(n_constants)}
+        # Evaluate the expression
+        y_pred = evaluator.evaluate(X_tensor, constant_values)
+        # Compute the loss
+        loss = F.mse_loss(y_pred, y_tensor)
+        loss.backward()
+        return loss
+
+    optimizer.step(closure)
+    
+    # After optimization, get the optimized constants
+    optimized_constants = constants.detach().numpy()
+    return optimized_constants
 
