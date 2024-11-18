@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import torch.nn.functional as F
 import random
 from collections import deque
+from agents.encoder import TreeEncoder, SetEncoder
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -19,10 +20,10 @@ class ReplayBuffer:
         next_states = [item[3] for item in batch]
         dones = [item[4] for item in batch]
         return (
-            torch.stack(states),
+            torch.stack(states).squeeze(1),
             torch.tensor(actions, dtype=torch.long),
             torch.tensor(rewards, dtype=torch.float32),
-            torch.stack(next_states),
+            torch.stack(next_states).squeeze(1),
             torch.tensor(dones, dtype=torch.float32),
         )
 
@@ -31,27 +32,37 @@ class ReplayBuffer:
         return len(self.memory)
 
 class DQNAgent(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_dim, action_size):
+    def __init__(self, vocab_size, input_dim, embedding_dim, hidden_dim, action_size, num_heads=4, num_layers=2, max_seq_length=50):
         super(DQNAgent, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, action_size)
-        self.action_size = action_size
+        # Encoders
+        self.set_encoder = SetEncoder(input_dim=input_dim, embedding_dim=embedding_dim, num_heads=num_heads, num_layers=num_layers)
+        self.tree_encoder = TreeEncoder(vocab_size=vocab_size, embedding_dim=embedding_dim, num_heads=num_heads, num_layers=num_layers, max_seq_length=max_seq_length)
+        # Fusion Layer
+        self.fusion_layer = nn.Linear(embedding_dim * 2, hidden_dim)
+        # Output Layer
+        self.output_layer = nn.Linear(hidden_dim, action_size)
     
-    def forward(self, state):
-        x = self.embedding(state)
-        lstm_out, (h_n, c_n) = self.lstm(x)
-        h_n = h_n[-1]
-        q_values = self.fc(h_n)
+    def forward(self, data, tree_sequence):
+        # data: (batch_size, set_size, input_dim)
+        # tree_sequence: (batch_size, seq_length)
+        data_embedding = self.set_encoder(data)
+        tree_embedding = self.tree_encoder(tree_sequence)
+        # Concatenate embeddings
+        batch_size = tree_embedding.shape[0]
+        data_embedding = data_embedding.expand(batch_size, -1)
+        combined_embedding = torch.cat((data_embedding, tree_embedding), dim=1)
+        # Pass through fusion and output layers
+        x = F.relu(self.fusion_layer(combined_embedding))
+        q_values = self.output_layer(x)
         return q_values
-
-    def act(self, state, epsilon):
+    
+    def act(self, data: torch.Tensor, tree_sequence: list[str], epsilon: float):
         if random.random() < epsilon:
             # Random action
-            action_idx = random.randint(0, self.action_size - 1)
+            action_idx = random.randint(0, self.output_layer.out_features - 1)
         else:
-            # Greedy action
             with torch.no_grad():
-                q_values = self(state)
+                q_values = self.forward(data, tree_sequence)
                 action_idx = torch.argmax(q_values).item()
         return action_idx
+
