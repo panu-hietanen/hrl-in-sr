@@ -26,6 +26,15 @@ class ReplayBuffer:
             torch.stack(next_states).squeeze(1),
             torch.tensor(dones, dtype=torch.float32),
         )
+    
+    def prioritise(self, done: bool) -> None:
+        if not done:
+            state = self.memory[-1][0]
+            action = self.memory[-1][1]
+            next_state = self.memory[-1][3]
+
+            self.memory.pop()
+            self.memory.append((state, action, -1, next_state, False))
 
     
     def __len__(self):
