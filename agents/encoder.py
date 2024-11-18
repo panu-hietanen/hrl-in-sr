@@ -3,18 +3,18 @@ import torch.nn as nn
 
 
 class SetEncoder(nn.Module):
-    def __init__(self, input_dim: int, embedding_dim: int, n_heads: int = 4, n_layers: int = 2) -> None:
+    def __init__(self, input_dim: int, embedding_dim: int, num_heads: int = 4, num_layers: int = 2) -> None:
         super(SetEncoder, self).__init__()
         self.input_layer = nn.Linear(input_dim, embedding_dim)
         self.layers = nn.ModuleList(
             [
                 nn.TransformerEncoderLayer(
                     d_model=embedding_dim,
-                    nhead=n_heads,
+                    nhead=num_heads,
                     dim_feedforward=embedding_dim * 2,
                     activation='relu',
                 )
-                for _ in range(n_layers)
+                for _ in range(num_layers)
             ]
         )
         self.pooling = nn.AdaptiveAvgPool1d(1)
