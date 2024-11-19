@@ -26,9 +26,17 @@ class ReplayBuffer:
             torch.tensor(dones, dtype=torch.float32),
         )
 
-    
     def __len__(self):
         return len(self.memory)
+    
+    def prioritise(self, done: bool) -> None:
+        if not done:
+            state = self.memory[-1][0]
+            action = self.memory[-1][1]
+            next_state = self.memory[-1][3]
+
+            self.memory.pop()
+            self.memory.append((state, action, -1, next_state, False))
 
 class DQNAgent(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, action_size):
