@@ -151,7 +151,7 @@ def train_rl_model(
             print('---------------------')
             print('Evaluating...')
             print('---------------------')
-            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, 1)
+            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, 0)
 
             print(f"Batch {batch} completed, Greedy Reward: {r}")
 
@@ -176,7 +176,7 @@ def evaluate_agent(
     r = 0
     i = 0
 
-    while not done and r < max_retries:
+    while not done and r <= max_retries:
         with torch.no_grad():
             q_values = agent(state_encoded.unsqueeze(0))
             action_idx = torch.argmax(q_values).item()
@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + 1
+    target = 2 * np.cos(data[0]) 
 
     # Initialize the environment
     max_depth = 10
@@ -317,5 +317,5 @@ if __name__ == "__main__":
         max_seq_length=max_seq_length,
     )
 
-    print(f"Constructed Expression: {constructed_expression}")
+    print(f"Final Expression: {constructed_expression}")
     print(f"Test Total Reward: {total_reward}")
