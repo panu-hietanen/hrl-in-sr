@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import random
 import numpy as np
 
 from libs.srenv import SREnv
@@ -9,12 +8,12 @@ from agents.rlagent import DQNAgent, ReplayBuffer
 
 
 def train_rl_model(
-    library,
-    data,
-    target,
-    max_depth=10,
-    embedding_dim=128,
-    hidden_dim=256,
+    agent,
+    target_agent,
+    env,
+    action_symbols,
+    encode_state,
+    max_seq_length,
     num_batches=1000,
     num_episodes_per_batch=10,
     batch_quantile=0.1,
@@ -22,63 +21,31 @@ def train_rl_model(
     gamma=0.99,
     epsilon_start=1.0,
     epsilon_end=0.25,
-    epsilon_decay=0.9995,
+    epsilon_decay=0.995,
     target_update=100,
     memory_capacity=1000000,
     batch_eval=10,
     lr=1e-4,
 ):
-    # Initialize environment
-    env = SREnv(library=library, data=data, target=target, max_depth=max_depth)
-
-    # Define vocabulary
-    vocab = list(library.keys()) + ['PAD']
-    symbol_to_index = {symbol: idx for idx, symbol in enumerate(vocab)}
-    index_to_symbol = {idx: symbol for symbol, idx in symbol_to_index.items()}
-    vocab_size = len(vocab)
-
-    def encode_state(state):
-        # Convert symbols to indices
-        state_indices = [symbol_to_index[symbol] for symbol in state]
-        # Pad sequence
-        if len(state_indices) < max_depth:
-            state_indices += [symbol_to_index['PAD']] * (max_depth - len(state_indices))
-        else:
-            state_indices = state_indices[:max_depth]
-        return torch.tensor(state_indices, dtype=torch.long)
-
-    action_symbols = list(library.keys())
-    action_size = len(action_symbols)
-    symbol_to_action_idx = {symbol: idx for idx, symbol in enumerate(action_symbols)}
-
-    # Device setup
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Initialize agent and target network
-    agent = DQNAgent(vocab_size, embedding_dim, hidden_dim, action_size)
-    target_agent = DQNAgent(vocab_size, embedding_dim, hidden_dim, action_size)
-    target_agent.load_state_dict(agent.state_dict())
-    target_agent.eval()
-    agent.train()
-
+    # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
     criterion = nn.MSELoss()
     memory = ReplayBuffer(memory_capacity)
 
     epsilon = epsilon_start
 
-    # Training loop
     for batch in range(num_batches):
         episodes = []
+
         for episode in range(num_episodes_per_batch):
             state_symbols = env.reset()
-            state_encoded = encode_state(state_symbols)  # Shape: (seq_length,)
+            state_encoded = encode_state(state_symbols)
             done = False
             total_reward = 0
             transitions = []
             i = 0
 
-            while not done and i < max_depth:
+            while not done and i < max_seq_length:
                 # Select action
                 action_idx = agent.act(state_encoded, epsilon)
                 action_symbol = action_symbols[action_idx]
@@ -89,9 +56,6 @@ def train_rl_model(
                     reward = 0
                     done = True
                     next_state_symbols = state_symbols  # Remain in the same state
-
-                if np.isnan(reward):
-                    print('Debug')
 
                 next_state_encoded = encode_state(next_state_symbols)
                 total_reward += float(reward)
@@ -107,7 +71,6 @@ def train_rl_model(
 
                 state_encoded = next_state_encoded
                 state_symbols = next_state_symbols
-
                 i += 1
 
             if done:
@@ -140,23 +103,17 @@ def train_rl_model(
 
         # Experience replay
         if len(memory) >= batch_size:
-            # Sample from memory
             states_batch, actions_batch, rewards_batch, next_states_batch, dones_batch = memory.sample(batch_size)
 
             try:
-                # Compute current Q-values
                 q_values = agent(states_batch)
                 q_values = q_values.gather(1, actions_batch.unsqueeze(1)).squeeze(1)
 
-                # Compute target Q-values
                 with torch.no_grad():
                     next_q_values = target_agent(next_states_batch).max(dim=1)[0]
                     target_q_values = rewards_batch + gamma * next_q_values * (1 - dones_batch)
 
-                # Compute loss
                 loss = criterion(q_values, target_q_values)
-
-                # Optimize the model
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -171,45 +128,75 @@ def train_rl_model(
         if batch % target_update == 0:
             target_agent.load_state_dict(agent.state_dict())
 
-        # Evaluation
+        # Periodic evaluation
         if batch % batch_eval == 0:
-            print('---------------------')
-            print('Evaluating...')
-            print('---------------------')
-            agent.eval()
+            constructed_expression, total_reward = evaluate_agent(
+                agent, env, action_symbols, encode_state, max_seq_length, 0
+            )
+            print(f"Evaluation - Batch {batch}: Constructed Expression: {constructed_expression}, Total Reward: {total_reward}")
+
+    # Save the trained model
+    # torch.save(agent.state_dict(), "agent.pth")
+
+
+def evaluate_agent(agent, env, action_symbols, encode_state, max_seq_length, max_retries):
+    """
+    Evaluate a trained agent on the given environment.
+    """
+    agent.eval()
+    state_symbols = env.reset()
+    state_encoded = encode_state(state_symbols)
+    done = False
+    total_reward = 0
+    expression_actions = []
+    i = 0
+    r = 0
+
+    while not done and r < max_retries:
+        with torch.no_grad():
+            q_values = agent(state_encoded.unsqueeze(0))  # Add batch dimension
+            action_idx = torch.argmax(q_values).item()
+
+        action_symbol = action_symbols[action_idx]
+        expression_actions.append(action_symbol)
+
+        try:
+            next_state_symbols, reward, done = env.step(action_symbol)
+        except ValueError:
+            reward = -1.0
+            done = True
+            next_state_symbols = state_symbols
+
+        next_state_encoded = encode_state(next_state_symbols)
+        total_reward += reward
+
+        state_encoded = next_state_encoded
+        state_symbols = next_state_symbols
+
+        if i == max_seq_length and not done:
             state_symbols = env.reset()
             state_encoded = encode_state(state_symbols)
-            done = False
             total_reward = 0
             expression_actions = []
             i = 0
+            r += 1
+            print('restarting...')
+        else:
+            i += 1
 
-            while not done and i < max_depth:
-                with torch.no_grad():
-                    q_values = agent(state_encoded.unsqueeze(0))  # Add batch dimension
-                    action_idx = torch.argmax(q_values).item()
-                action_symbol = action_symbols[action_idx]
-                expression_actions.append(action_symbol)
-                try:
-                    next_state_symbols, reward, done = env.step(action_symbol)
-                except ValueError:
-                    reward = -1.0
-                    done = True
-                    next_state_symbols = state_symbols
-                next_state_encoded = encode_state(next_state_symbols)
-                total_reward += float(reward)
-                state_encoded = next_state_encoded
-                state_symbols = next_state_symbols
-                i += 1
+    # Replace constant placeholders with actual values
+    n_const = env.expression.n_constants
+    const_count = 0
+    for idx, token in enumerate(expression_actions):
+        if const_count == n_const:
+            break
+        if token == 'C':
+            const_val = env.expression.optimized_constants[const_count].item()
+            expression_actions[idx] = str(round(const_val, 3))
+            const_count += 1
 
-            agent.train()  # Set back to training mode
-
-            if done and round(total_reward, 2) == 1:
-                print('Found expression! Stopping early...')
-                break
-
-    # Save the model
-    torch.save(agent.state_dict(), "agent.pth")
+    constructed_expression = ' '.join(expression_actions)
+    return constructed_expression, total_reward
 
 
 if __name__ == "__main__":
@@ -227,7 +214,6 @@ if __name__ == "__main__":
     n_samples = 1000
     n_vars = 1
 
-    # Add variables to the library
     for i in range(n_vars):
         var_name = f'X{i}'
         library[var_name] = 0
@@ -236,5 +222,44 @@ if __name__ == "__main__":
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
     target = 2 * data[0] + 10
 
+    # Initialize environment and agent
+    max_depth = 10
+    env = SREnv(library=library, data=data, target=target, max_depth=max_depth)
+
+    vocab_size = len(library) + 1  # Including PAD
+    action_symbols = list(library.keys())
+    embedding_dim = 128
+    hidden_dim = 256
+
+    agent = DQNAgent(vocab_size, embedding_dim, hidden_dim, len(action_symbols))
+    target_agent = DQNAgent(vocab_size, embedding_dim, hidden_dim, len(action_symbols))
+
+    target_agent.load_state_dict(agent.state_dict())
+    target_agent.eval()
+
+    def encode_state(state):
+        symbol_to_index = {symbol: idx for idx, symbol in enumerate(action_symbols + ['PAD'])}
+        state_indices = [symbol_to_index[symbol] for symbol in state]
+        state_indices += [symbol_to_index['PAD']] * (max_depth - len(state_indices))
+        return torch.tensor(state_indices[:max_depth], dtype=torch.long)
+
     # Train the RL model
-    train_rl_model(library, data, target)
+    train_rl_model(
+        agent=agent,
+        target_agent=target_agent,
+        env=env,
+        action_symbols=action_symbols,
+        encode_state=encode_state,
+        max_seq_length=max_depth,
+    )
+
+    expression, reward = evaluate_agent(
+        agent=agent,
+        env=env,
+        action_symbols=action_symbols,
+        encode_state=encode_state,
+        max_seq_length=max_depth,
+        max_retries=50
+    )
+
+    print(f'Expression found: {expression} with reward {reward}')
