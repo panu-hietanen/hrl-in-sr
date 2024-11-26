@@ -9,7 +9,7 @@ class ReplayBuffer:
         self.memory = deque(maxlen=capacity)
     
     def push(self, state: torch.Tensor, action, reward, next_state: torch.Tensor, done):
-        self.memory.append((state.detach(), action, reward, next_state.detach(), done))
+        self.memory.append((state, action, reward, next_state, done))
     
     def sample(self, batch_size):
         batch = random.sample(self.memory, batch_size)
