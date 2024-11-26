@@ -318,4 +318,4 @@ if __name__ == "__main__":
     )
 
     print(f"Final Expression: {constructed_expression}")
-    print(f"Test Total Reward: {total_reward}")
+    print(f"Reward: {total_reward}")
