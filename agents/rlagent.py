@@ -31,11 +31,7 @@ class ReplayBuffer:
     
     def prioritise(self, done: bool) -> None:
         if not done:
-            state = self.memory[-1][0]
-            action = self.memory[-1][1]
-            next_state = self.memory[-1][3]
-
-            self.memory.pop()
+            state, action, _, next_state, _ = self.memory.pop()
             self.memory.append((state, action, -1, next_state, False))
 
 class DQNAgent(nn.Module):
