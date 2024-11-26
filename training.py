@@ -31,7 +31,7 @@ def train_rl_model(
     epsilon_start=1.0,
     epsilon_end=0.25,
     epsilon_decay=0.9995,
-    target_update=None,
+    target_update=10,
     memory_capacity=None,
     batch_eval=10,
     lr=1e-4,
@@ -87,11 +87,8 @@ def train_rl_model(
 
                 i += 1
 
-            if done:
-                print(f"Batch {batch}.{episode} completed, Total Reward: {total_reward}")
-            else:
+            if not done:
                 total_reward = -1
-                print(f"Batch {batch}.{episode} failed, Total Reward: {total_reward}")
 
             # Assign total reward to all transitions (since intermediate rewards are zero)
             transitions = [
@@ -154,10 +151,12 @@ def train_rl_model(
             print('---------------------')
             print('Evaluating...')
             print('---------------------')
-            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, 0)
+            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, 1)
+
+            print(f"Batch {batch} completed, Greedy Reward: {r}")
 
             if round(float(r), 2) == 1:
-                print(f'Found expression! Stopping early at iteration {batch}...')
+                print(f'Found expression! Stopping early...')
                 return
 
 def evaluate_agent(
@@ -174,11 +173,10 @@ def evaluate_agent(
     done = False
     total_reward = 0
     expression_actions = []
-    max_restart = max_retries
     r = 0
     i = 0
 
-    while not done and r < max_restart:
+    while not done and r < max_retries:
         with torch.no_grad():
             q_values = agent(state_encoded.unsqueeze(0))
             action_idx = torch.argmax(q_values).item()
@@ -248,7 +246,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + 10
+    target = 2 * data[0] + 1
 
     # Initialize the environment
     max_depth = 10
@@ -257,7 +255,6 @@ if __name__ == "__main__":
     # Define vocabulary
     vocab = list(library.keys()) + ['PAD']
     symbol_to_index = {symbol: idx for idx, symbol in enumerate(vocab)}
-    index_to_symbol = {idx: symbol for symbol, idx in symbol_to_index.items()}
     vocab_size = len(vocab)
 
     # Maximum sequence length
@@ -265,7 +262,6 @@ if __name__ == "__main__":
 
     action_symbols = list(library.keys())
     action_size = len(action_symbols)
-    symbol_to_action_idx = {symbol: idx for idx, symbol in enumerate(action_symbols)}
 
     # Hyperparameters
     embedding_dim = 128
@@ -278,7 +274,7 @@ if __name__ == "__main__":
     epsilon_start = 1.0
     epsilon_end = 0.25
     epsilon_decay = 0.9995
-    target_update = num_batches // 10
+    target_update = 10
     memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
     batch_eval = 10
     lr = 1e-4
