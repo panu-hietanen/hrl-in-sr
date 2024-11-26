@@ -92,16 +92,17 @@ def train_rl_model(
             if not done:
                 total_reward = -1
 
-            # Assign total reward to all transitions
+            T = len(transitions)
+
             transitions = [
                 (
                     t[0],  # state_encoded
                     t[1],  # action_idx
-                    total_reward,
+                    total_reward * (gamma ** (T - idx - 1)),
                     t[3],  # next_state_encoded
                     t[4]   # done
                 )
-                for t in transitions
+                for idx, t in enumerate(transitions)
             ]
 
             episodes.append((transitions, total_reward))
@@ -252,12 +253,13 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + 5
+    target = 2 * data[0] * data[0]
 
     # Precompute data input
     data_flat = data.view(-1)
     target_flat = target.view(-1)
-    data_input = torch.cat([data_flat, target_flat], dim=0)
+    # data_input = torch.cat([data_flat, target_flat], dim=0)
+    data_input = (data_flat - data_flat.mean()) / (data_flat.std() + 1e-8)
     data_input_dim = data_input.shape[0]
 
     # Initialize the environment
