@@ -119,6 +119,7 @@ class TreeExpression:
 
         # After optimization, store the optimized constants
         self.optimized_constants = constants.detach().clone()
+        self.optimized_constants = torch.nan_to_num(self.optimized_constants)
         self.constants_optimized = True
 
     def reset(self) -> None:
