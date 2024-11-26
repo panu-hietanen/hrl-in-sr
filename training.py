@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import random
 
 from libs.srenv import SREnv
 from agents.rlagent import DQNAgent, ReplayBuffer
@@ -253,7 +252,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + 10
+    target = 2 * data[0] + 5
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -279,14 +278,14 @@ if __name__ == "__main__":
     # Hyperparameters
     embedding_dim = 128
     hidden_dim = 256
-    num_batches = 1000
+    num_batches = 5000
     num_episodes_per_batch = 10
     batch_quantile = 0.1
     batch_size = 500
     gamma = 0.99
     epsilon_start = 1.0
-    epsilon_end = 0.25
-    epsilon_decay = 0.9995
+    epsilon_end = 0.3
+    epsilon_decay = 0.995
     target_update = 10
     memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
     batch_eval = 10
