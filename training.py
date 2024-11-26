@@ -156,7 +156,7 @@ def train_rl_model(
             print('---------------------')
             print('Evaluating...')
             print('---------------------')
-            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length)
+            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, 0)
 
             if round(float(r), 2) == 1:
                 print(f'Found expression! Stopping early at iteration {batch}...')
