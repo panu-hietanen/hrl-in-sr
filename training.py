@@ -176,7 +176,7 @@ def evaluate_agent(
     r = 0
     i = 0
 
-    while not done and r <= max_retries:
+    while not done:
         with torch.no_grad():
             q_values = agent(state_encoded.unsqueeze(0))
             action_idx = torch.argmax(q_values).item()
@@ -203,6 +203,8 @@ def evaluate_agent(
             expression_actions = []
             i = 0
             r += 1
+            if r > max_retries:
+                break
             print('restarting...')
         else:
             i += 1
@@ -246,7 +248,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * np.cos(data[0]) 
+    target = 2 * data[0] + 10
 
     # Initialize the environment
     max_depth = 10
