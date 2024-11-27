@@ -7,7 +7,7 @@ from libs.srenv import SREnv
 from agents.rlagent import DQNAgent, ReplayBuffer
 
 import matplotlib.pyplot as plt
-import time
+from datetime import datetime
 
 def encode_state(state, symbol_to_index, max_seq_length):
     # Convert symbols to indices
@@ -273,7 +273,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0]
+    target = 2 * np.cos(data[0])
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -364,4 +364,4 @@ if __name__ == "__main__":
         plt.xlabel("Batch no.")
         plt.ylabel("Reward")
         plt.title("Greedy Reward Over Time")
-        plt.savefig(f'plots/Training_history_{time.time()}.png')
+        plt.savefig(f'plots/Training_history_{datetime.now()}.png')
