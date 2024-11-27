@@ -8,7 +8,6 @@ from agents.rlagent import DQNAgent, ReplayBuffer
 
 import matplotlib.pyplot as plt
 from datetime import datetime
-import math
 
 def encode_state(state, symbol_to_index, max_seq_length):
     # Convert symbols to indices
