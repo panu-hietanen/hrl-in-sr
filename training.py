@@ -6,6 +6,8 @@ import numpy as np
 from libs.srenv import SREnv
 from agents.rlagent import DQNAgent, ReplayBuffer
 
+import matplotlib.pyplot as plt
+
 def encode_state(state, symbol_to_index, max_seq_length):
     # Convert symbols to indices
     state_indices = [symbol_to_index[symbol] for symbol in state]
@@ -37,6 +39,7 @@ def train_rl_model(
     memory_capacity=None,
     batch_eval=10,
     lr=1e-4,
+    logging=False
 ):
     # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
@@ -49,6 +52,11 @@ def train_rl_model(
         target_update = num_batches // 10
 
     epsilon = epsilon_start
+
+    best_reward = 0
+    best_expression = []
+
+    history = []
 
     for batch in range(num_batches):
         episodes = []
@@ -158,13 +166,21 @@ def train_rl_model(
             print('---------------------')
             print('Evaluating...')
             print('---------------------')
-            _, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
+            expression, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
 
             print(f"Batch {batch} completed, Greedy Reward: {r}")
 
-            if round(float(r), 2) == 1:
+            if r > best_reward:
+                best_reward = r
+                best_expression = expression
+
+            if logging:
+                history.append((batch, reward))
+
+            if round(float(r), 3) == 1:
                 print(f'Found expression! Stopping early...')
-                return
+                return best_expression, best_reward, history
+    return best_expression, best_reward, history
 
 def evaluate_agent(
     agent,
@@ -256,7 +272,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * np.cos(data[0]) + 10
+    target = 2 * data[0] + 10
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -295,6 +311,7 @@ if __name__ == "__main__":
     memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
     batch_eval = 10
     lr = 1e-4
+    logging = True
 
     # Initialize agent and target agent
     agent = DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
@@ -304,7 +321,7 @@ if __name__ == "__main__":
     agent.train()
 
     # Train the RL model
-    train_rl_model(
+    expression, reward, history = train_rl_model(
         agent=agent,
         target_agent=target_agent,
         env=env,
@@ -324,6 +341,7 @@ if __name__ == "__main__":
         memory_capacity=memory_capacity,
         batch_eval=batch_eval,
         lr=lr,
+        logging=logging,
     )
 
     # Evaluate the agent
@@ -336,5 +354,13 @@ if __name__ == "__main__":
         max_seq_length=max_seq_length,
     )
 
-    print(f"Final Expression: {constructed_expression}")
+    print(f"Best Training Expression: '{expression}', reward = {reward}")
+    print(f"Final Testing Expression: {constructed_expression}")
     print(f"Reward: {total_reward}")
+
+    if logging:
+        plt.plot(*zip(*history))
+        plt.xlabel("Batch no.")
+        plt.ylabel("Reward")
+        plt.title("Greedy Reward Over Time")
+        plt.show()
