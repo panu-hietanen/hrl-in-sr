@@ -138,6 +138,9 @@ def train_rl_model(
                 # Optimize the model
                 optimizer.zero_grad()
                 loss.backward()
+
+                torch.nn.utils.clip_grad_norm_(agent.parameters(), max_norm=1.0)
+
                 optimizer.step()
             except Exception as e:
                 print(f'Training failed due to {e}. Skipping this iteration...')
@@ -253,7 +256,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] * data[0]
+    target = 2 * np.cos(data[0]) + 10
 
     # Precompute data input
     data_flat = data.view(-1)
