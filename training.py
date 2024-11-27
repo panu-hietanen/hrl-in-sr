@@ -274,7 +274,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * np.cos(data[0]) + 10
+    target = 2 * data[0] + 10
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -287,8 +287,7 @@ if __name__ == "__main__":
     max_seq_length = 10
 
     # Initialize the environment
-    max_depth = math.ceil(math.log(max_seq_length + 1, 2))
-    env = SREnv(library=library, data=data, target=target, max_depth=max_depth)
+    env = SREnv(library=library, data=data, target=target, max_length=max_seq_length)
 
     # Define vocabulary
     vocab = list(library.keys()) + ['PAD']
