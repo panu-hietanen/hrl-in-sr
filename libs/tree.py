@@ -14,7 +14,7 @@ class Node:
         if not self.complete():
             self.children.append(child)
         else:
-            raise ValueError(f"Node '{self.symbol}' already has {self.arity} children.")
+            raise ValueError(f"Node '{self.symbol}' already has {self.arity} child/children.")
 
     def encode(self, depth: int, max_depth: int) -> list:
         nodes = []
@@ -49,17 +49,19 @@ class Tree:
         node = self._create_node(action)
         if self.root is None:
             self.root = node
-            if node.arity > 0:
-                self.current_nodes.append(node)
         else:
             if self.complete():
                 raise ValueError("Tree is already complete.")
             parent_node = self.current_nodes[-1]
+            self.encode(4)
             parent_node.add_child(node)
-            if node.arity > 0:
-                self.current_nodes.append(node)
+            ######################## Debug
+            self.encode(4)
+            ######################## Debug
             while self.current_nodes and self.current_nodes[-1].complete():
                 self.current_nodes.pop()
+        if node.arity > 0:
+            self.current_nodes.append(node)
 
     def complete(self) -> bool:
         return self.root is not None and not self.current_nodes
@@ -67,6 +69,14 @@ class Tree:
     def encode(self, max_depth: int) -> list:
         if self.root is None:
             return ['PAD'] * (2 ** max_depth - 1)
+        encoding = self.root.encode(depth=0, max_depth=max_depth)
+        ############################ DEBUG
+        for idx, i in enumerate(encoding):
+            if i == 'PAD' and idx+1 != len(encoding):
+                if encoding[idx + 1] != 'PAD':
+                    # print('HERE')
+                    break
+        ############################
         encoding = self.root.encode(depth=0, max_depth=max_depth)
         return encoding
 

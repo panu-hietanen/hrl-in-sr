@@ -8,6 +8,7 @@ from agents.rlagent import DQNAgent, ReplayBuffer
 
 import matplotlib.pyplot as plt
 from datetime import datetime
+import math
 
 def encode_state(state, symbol_to_index, max_seq_length):
     # Convert symbols to indices
@@ -273,7 +274,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * np.cos(data[0])
+    target = 2 * np.cos(data[0]) + 10
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -282,8 +283,11 @@ if __name__ == "__main__":
     data_input = (data_flat - data_flat.mean()) / (data_flat.std() + 1e-8)
     data_input_dim = data_input.shape[0]
 
+    # Maximum sequence length
+    max_seq_length = 10
+
     # Initialize the environment
-    max_depth = 10
+    max_depth = math.ceil(math.log(max_seq_length + 1, 2))
     env = SREnv(library=library, data=data, target=target, max_depth=max_depth)
 
     # Define vocabulary
@@ -291,8 +295,6 @@ if __name__ == "__main__":
     symbol_to_index = {symbol: idx for idx, symbol in enumerate(vocab)}
     vocab_size = len(vocab)
 
-    # Maximum sequence length
-    max_seq_length = max_depth
 
     action_symbols = list(library.keys())
     action_size = len(action_symbols)
