@@ -273,7 +273,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * np.cos(data[0])
+    target = 2 * data[0] + 10
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -282,17 +282,17 @@ if __name__ == "__main__":
     data_input = (data_flat - data_flat.mean()) / (data_flat.std() + 1e-8)
     data_input_dim = data_input.shape[0]
 
+    # Maximum sequence length
+    max_seq_length = 10
+
     # Initialize the environment
-    max_depth = 10
-    env = SREnv(library=library, data=data, target=target, max_depth=max_depth)
+    env = SREnv(library=library, data=data, target=target, max_length=max_seq_length)
 
     # Define vocabulary
     vocab = list(library.keys()) + ['PAD']
     symbol_to_index = {symbol: idx for idx, symbol in enumerate(vocab)}
     vocab_size = len(vocab)
 
-    # Maximum sequence length
-    max_seq_length = max_depth
 
     action_symbols = list(library.keys())
     action_size = len(action_symbols)
