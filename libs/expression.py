@@ -9,8 +9,8 @@ class TreeExpression:
         self.expression: list[str] = None
         self.optimized_constants: torch.Tensor = None
         self.n_vars, self.n_samples = data.shape
-        self.constants_optimized = False
-        self.n_constants = 0
+        self.constants_optimized: bool = False
+        self.n_constants: int = 0
 
     def evaluate(self, expression: list[str]) -> torch.Tensor:
         """

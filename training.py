@@ -9,7 +9,7 @@ from agents.rlagent import DQNAgent, ReplayBuffer
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-def encode_state(state, symbol_to_index, max_seq_length):
+def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
     # Convert symbols to indices
     state_indices = [symbol_to_index[symbol] for symbol in state]
     # Pad sequence
@@ -21,26 +21,26 @@ def encode_state(state, symbol_to_index, max_seq_length):
 
 
 def train_rl_model(
-    agent,
-    target_agent,
-    env,
-    action_symbols,
-    symbol_to_index,
-    max_seq_length,
-    data_input,
-    num_batches=1000,
-    num_episodes_per_batch=10,
-    batch_quantile=0.1,
-    batch_size=250,
-    gamma=0.99,
-    epsilon_start=1.0,
-    epsilon_end=0.25,
-    epsilon_decay=0.9995,
-    target_update=None,
-    memory_capacity=None,
-    batch_eval=10,
-    lr=1e-4,
-    logging=False
+    agent: DQNAgent,
+    target_agent: DQNAgent,
+    env: SREnv,
+    action_symbols: list[str],
+    symbol_to_index: dict[str, int],
+    max_seq_length: int,
+    data_input: torch.Tensor,
+    num_batches: int=1000,
+    num_episodes_per_batch: int=10,
+    batch_quantile: float=0.1,
+    batch_size: int=250,
+    gamma: float=0.99,
+    epsilon_start: float=1.0,
+    epsilon_end: float=0.25,
+    epsilon_decay: float=0.9995,
+    target_update: int=None,
+    memory_capacity: int=None,
+    batch_eval: int=10,
+    lr: float=1e-4,
+    logging: bool=False
 ):
     # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
@@ -54,10 +54,10 @@ def train_rl_model(
 
     epsilon = epsilon_start
 
-    best_reward = 0
-    best_expression = []
+    best_reward: float = 0.0
+    best_expression: list[str] = []
 
-    history = []
+    history: list[tuple[int, float]] = []
 
     for batch in range(num_batches):
         episodes = []
@@ -70,8 +70,10 @@ def train_rl_model(
             i = 0
 
             while not done and i < max_seq_length:
+                mask = torch.ones(len(action_symbols))
+                # mask[[4, 5]] = 0
                 # Select action
-                action_idx = agent.act(data_input, state_encoded, epsilon)
+                action_idx = agent.act(data_input, state_encoded, epsilon, mask)
                 action_symbol = action_symbols[action_idx]
 
                 try:
@@ -184,13 +186,13 @@ def train_rl_model(
     return best_expression, best_reward, history
 
 def evaluate_agent(
-    agent,
-    env,
-    action_symbols,
-    symbol_to_index,
-    max_seq_length,
-    data_input,
-    max_retries=100
+    agent: DQNAgent,
+    env: SREnv,
+    action_symbols: list[str],
+    symbol_to_index: dict[str, int],
+    max_seq_length: int,
+    data_input: torch.Tensor,
+    max_retries: int=100
 ):
     agent.eval()
     state_symbols = env.reset()
@@ -258,6 +260,7 @@ if __name__ == "__main__":
         '-': 2,
         '*': 2,
         '/': 2,
+        '^': 2,
         'sin': 1,
         'cos': 1,
         'C': 0,  # Placeholder for constants
@@ -273,7 +276,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + 10
+    target = 2 * data[0] ** 3
 
     # Precompute data input
     data_flat = data.view(-1)
