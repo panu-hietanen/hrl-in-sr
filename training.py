@@ -166,9 +166,7 @@ def train_rl_model(
 
         # Evaluation
         if batch % batch_eval == 0:
-            print('---------------------')
             print('Evaluating...')
-            print('---------------------')
             expression, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
 
             print(f"Batch {batch} completed, Greedy Reward: {r}")
@@ -260,7 +258,7 @@ if __name__ == "__main__":
         '-': 2,
         '*': 2,
         '/': 2,
-        '^': 2,
+        # '^': 2,
         'sin': 1,
         'cos': 1,
         'C': 0,  # Placeholder for constants
@@ -268,7 +266,7 @@ if __name__ == "__main__":
 
     # Create data and target tensors
     n_samples = 1000
-    n_vars = 1
+    n_vars = 2
 
     for i in range(n_vars):
         var_name = f'X{i}'
@@ -276,7 +274,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] ** 3
+    target = 2 * data[0] / data[1]
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -315,7 +313,7 @@ if __name__ == "__main__":
     memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
     batch_eval = 10
     lr = 1e-4
-    logging = True
+    logging = False
 
     # Initialize agent and target agent
     agent = DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
@@ -359,6 +357,7 @@ if __name__ == "__main__":
     )
 
     print(f"Best Training Expression: '{expression}', reward = {reward}")
+    print('---------------------------')
     print(f"Final Testing Expression: {constructed_expression}")
     print(f"Reward: {total_reward}")
 
