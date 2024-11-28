@@ -270,9 +270,8 @@ if __name__ == "__main__":
         '-': 2,
         '*': 2,
         '/': 2,
-        '^': 2,
-        'sin': 1,
-        'cos': 1,
+        # 'sin': 1,
+        # 'cos': 1,
         'C': 0,  # Placeholder for constants
     }
 
@@ -325,7 +324,7 @@ if __name__ == "__main__":
     memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
     batch_eval = 10
     lr = 1e-4
-    logging = True
+    logging = False
 
     # Initialize agent and target agent
     agents = [DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length) for _ in range(max_seq_length)]
