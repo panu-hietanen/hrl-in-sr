@@ -46,8 +46,16 @@ class SREnv:
     def _squeeze(self, x: float):
         return 1 / (1 + x)
     
-    def estimate_reward(self) -> float:
+    def estimate_reward(self, n_estimates: int = 5) -> float:
         current_expression = self.tree.encode(self.max_length)
         nodes_needed = current_expression.count('PAD')
-        evaluation = self.expression.approx_evaluate(current_expression, self.n_vars, nodes_needed)
-        return self._squeeze(self.loss(evaluation, self.target)) / nodes_needed
+        best_result = 0
+
+        for i in range(n_estimates):
+            evaluation = self.expression.approx_evaluate(current_expression, self.n_vars, nodes_needed)
+            result = self._squeeze(self.loss(evaluation, self.target)) / nodes_needed
+
+            if result > best_result:
+                best_result = result
+
+        return best_result
