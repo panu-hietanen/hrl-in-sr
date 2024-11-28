@@ -16,7 +16,7 @@ class Node:
         else:
             raise ValueError(f"Node '{self.symbol}' already has {self.arity} child/children.")
 
-    def encode(self, length: int, max_length: int) -> list:
+    def encode(self, length: int, max_length: int) -> list[str]:
         nodes = []
         self._encoding(nodes, length, max_length)
         return nodes
@@ -62,7 +62,7 @@ class Tree:
     def complete(self) -> bool:
         return self.root is not None and not self.current_nodes
 
-    def encode(self, max_length: int) -> list:
+    def encode(self, max_length: int) -> list[str]:
         if self.root is None:
             return ['PAD'] * max_length
         encoding = self.root.encode(length=0, max_length=max_length)

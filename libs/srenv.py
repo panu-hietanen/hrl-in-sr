@@ -16,13 +16,13 @@ class SREnv:
         self.target = target
         self.data = data
 
-    def reset(self) -> list[Node]:
+    def reset(self) -> list[str]:
         self.tree.reset()
         self.expression.reset()
         self.done = False
         return self.get_state()
 
-    def step(self, action: str) -> tuple[list[Node], float, bool]:
+    def step(self, action: str) -> tuple[list[str], float, bool]:
         if action not in self.library:
             raise ValueError('Ensure the action is included in the library of symbols.')
         self.tree.add_action(action)
