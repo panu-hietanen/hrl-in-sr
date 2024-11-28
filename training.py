@@ -79,6 +79,7 @@ def train_rl_model(
                 try:
                     next_state_symbols, reward, done = env.step(action_symbol)
                 except ValueError as e:
+                    print(f'Error {e}. Ending episode...')
                     reward = 0
                     done = True
                     next_state_symbols = state_symbols  # Remain in the same state
