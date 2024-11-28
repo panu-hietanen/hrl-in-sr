@@ -164,7 +164,7 @@ def evaluate_agent(
     symbol_to_index: dict[str, int],
     max_seq_length: int,
     data_input: torch.Tensor,
-    max_retries: int=100
+    max_retries: int=20
 ):
     agent.eval()
     state_symbols = env.reset()

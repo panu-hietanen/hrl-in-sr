@@ -53,9 +53,9 @@ class SREnv:
 
         for i in range(n_estimates):
             evaluation = self.expression.approx_evaluate(current_expression, self.n_vars, nodes_needed)
-            result = self._squeeze(self.loss(evaluation, self.target)) / nodes_needed
+            result = self._squeeze(self.loss(evaluation, self.target))
 
             if result > best_result:
                 best_result = result
 
-        return best_result
+        return best_result / nodes_needed
