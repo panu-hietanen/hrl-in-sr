@@ -44,11 +44,11 @@ def train_rl_model(
     optimizer = optim.Adam(agent.parameters(), lr=lr)
     criterion = nn.MSELoss()
     if memory_capacity is None:
-        memory_capacity = max_seq_length * num_episodes * num_batches
+        memory_capacity = max_seq_length * num_episodes
     memory = ReplayBuffer(memory_capacity)
 
     if target_update is None:
-        target_update = num_batches // 10
+        target_update = num_episodes // 10
 
     epsilon = epsilon_start
 
@@ -62,7 +62,6 @@ def train_rl_model(
         state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
         done = False
         total_reward = 0
-        transitions = []
         i = 0
 
         while not done and i < max_seq_length:
@@ -171,7 +170,6 @@ def evaluate_agent(
     state_symbols = env.reset()
     state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
     done = False
-    total_reward = 0
     expression_actions = []
     r = 0
     i = 0
@@ -184,22 +182,19 @@ def evaluate_agent(
         expression_actions.append(action_symbol)
         
         try:
-            next_state_symbols, reward, done = env.step(action_symbol)
+            next_state_symbols, _, done = env.step(action_symbol)
         except ValueError as e:
             print(f'Error {e}. Exiting...')
-            reward = -1.0
             done = True
             next_state_symbols = state_symbols
 
         next_state_encoded = encode_state(next_state_symbols, symbol_to_index, max_seq_length)
-        total_reward += reward
         state_encoded = next_state_encoded
         state_symbols = next_state_symbols
 
         if i == max_seq_length and not done:
             state_symbols = env.reset()
             state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
-            total_reward = 0
             expression_actions = []
             i = 0
             r += 1
@@ -252,7 +247,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + 1
+    target = 2 * np.cos(data[0])
 
     # Precompute data input
     data_flat = data.view(-1)
