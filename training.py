@@ -68,7 +68,7 @@ def train_rl_model(
             total_reward = 0
             transitions = []
 
-            for i, (agent, target_agent) in enumerate(zip(agents, target_agents)):
+            for agent, target_agent in zip(agents, target_agents):
                 mask = torch.ones(len(action_symbols))
                 # mask[[4, 5]] = 0
                 # Select action
