@@ -10,27 +10,29 @@ class ReplayBuffer:
     
     def push(
         self,
-        state: torch.Tensor,
-        action: str,
-        reward: float,
-        next_state: torch.Tensor,
-        done: bool
+        memory: torch.Tensor
     ) -> None:
-        self.memory.append((state, action, reward, next_state, done))
+        self.memory.append(memory)
     
     def sample(self, batch_size: int) -> tuple[torch.Tensor]:
-        batch = random.sample(self.memory, batch_size)
-        states = [item[0] for item in batch]
-        actions = [item[1] for item in batch]
-        rewards = [item[2] for item in batch]
-        next_states = [item[3] for item in batch]
-        dones = [item[4] for item in batch]
+        episodes = random.sample(self.memory, batch_size)
+        states  = []
+        actions = []
+        rewards = []
+        next_states = []
+        dones = []
+        for episode in episodes:
+            states.append([transition[0] for transition in episode])
+            actions.append([transition[1] for transition in episode])
+            rewards.append([transition[2] for transition in episode])
+            next_states.append([transition[3] for transition in episode])
+            dones.append([transition[4] for transition in episode])
         return (
-            torch.stack(states),
-            torch.tensor(actions, dtype=torch.long),
-            torch.tensor(rewards, dtype=torch.float32),
-            torch.stack(next_states),
-            torch.tensor(dones, dtype=torch.float32),
+            states,
+            actions,
+            rewards,
+            next_states,
+            dones
         )
       
     def __len__(self) -> int:

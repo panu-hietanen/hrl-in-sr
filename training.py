@@ -21,8 +21,8 @@ def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
 
 
 def train_rl_model(
-    agent: DQNAgent,
-    target_agent: DQNAgent,
+    agents: DQNAgent,
+    target_agents: DQNAgent,
     env: SREnv,
     action_symbols: list[str],
     symbol_to_index: dict[str, int],
@@ -43,7 +43,7 @@ def train_rl_model(
     logging: bool=False
 ):
     # Initialize optimizer, loss function, and replay buffer
-    optimizer = optim.Adam(agent.parameters(), lr=lr)
+    optimizers = [optim.Adam(agents[0].parameters(), lr=lr) for _ in range(max_seq_length)]
     criterion = nn.MSELoss()
     if memory_capacity is None:
         memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
@@ -67,9 +67,8 @@ def train_rl_model(
             done = False
             total_reward = 0
             transitions = []
-            i = 0
 
-            while not done and i < max_seq_length:
+            for i, (agent, target_agent) in enumerate(zip(agents, target_agents)):
                 mask = torch.ones(len(action_symbols))
                 # mask[[4, 5]] = 0
                 # Select action
@@ -86,19 +85,22 @@ def train_rl_model(
                 next_state_encoded = encode_state(next_state_symbols, symbol_to_index, max_seq_length)
                 total_reward += reward
 
-                # Store transition
-                transitions.append((
+                transition = (
                     state_encoded,
                     action_idx,
                     reward,
                     next_state_encoded,
                     done
-                ))
+                )
+
+                # Store transition
+                transitions.append(transition)
 
                 state_encoded = next_state_encoded
                 state_symbols = next_state_symbols
 
-                i += 1
+                if done:
+                    break
 
             if not done:
                 total_reward = -1
@@ -124,8 +126,7 @@ def train_rl_model(
 
         # Store transitions from top episodes in the replay buffer
         for episode_transitions in top_episodes:
-            for transition in episode_transitions:
-                memory.push(*transition)
+            memory.push(episode_transitions)
 
         # Experience replay
         if len(memory) >= batch_size:
@@ -133,28 +134,39 @@ def train_rl_model(
             states_batch, actions_batch, rewards_batch, next_states_batch, dones_batch = memory.sample(batch_size)
             # data_batch = random.sample(data_input, batch_size)
 
-            try:
-                # Compute current Q-values
-                q_values = agent(data_input, states_batch)
-                q_values = q_values.gather(1, actions_batch.unsqueeze(1)).squeeze(1)
+            # try:
+            # Compute current Q-values
+            for (s, a, r, sp, d) in zip(states_batch, actions_batch, rewards_batch, next_states_batch, dones_batch):
+                for i in range(len(s)):
+                    agent = agents[i]
+                    target_agent = target_agents[i]
+                    optimizer = optimizers[i]
 
-                # Compute target Q-values
-                with torch.no_grad():
-                    next_q_values = target_agent(data_input, next_states_batch).max(dim=1)[0]
-                    target_q_values = rewards_batch + gamma * next_q_values * (1 - dones_batch)
 
-                # Compute loss
-                loss = criterion(q_values, target_q_values)
+                    q_values = agent(data_input, s[i].unsqueeze(0)).squeeze(0)
+                    q_values = q_values[a[i]]
 
-                # Optimize the model
-                optimizer.zero_grad()
-                loss.backward()
+                    # Compute target Q-values
+                    with torch.no_grad():
+                        next_q_values = target_agent(data_input, sp[i].unsqueeze(0)).max(dim=1)[0]
+                        target_q_values = r[i] + gamma * next_q_values * (1 - d[i])
 
-                torch.nn.utils.clip_grad_norm_(agent.parameters(), max_norm=1.0)
+                    # Compute loss
+                    loss = criterion(q_values.unsqueeze(0), target_q_values)
 
-                optimizer.step()
-            except Exception as e:
-                print(f'Training failed due to {e}. Skipping this iteration...')
+                    # Optimize the model
+                    optimizer.zero_grad()
+                    loss.backward()
+
+                    torch.nn.utils.clip_grad_norm_(agent.parameters(), max_norm=1.0)
+
+                    optimizer.step()
+                    
+                    agents[i] = agent
+                    target_agents[i] = target_agent
+                    optimizers[i] = optimizer
+            # except Exception as e:
+            #     print(f'Training failed due to {e}. Skipping this iteration...')
 
         # Decay epsilon
         if epsilon > epsilon_end:
@@ -166,9 +178,7 @@ def train_rl_model(
 
         # Evaluation
         if batch % batch_eval == 0:
-            print('---------------------')
             print('Evaluating...')
-            print('---------------------')
             expression, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
 
             print(f"Batch {batch} completed, Greedy Reward: {r}")
@@ -276,7 +286,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] ** 3
+    target = 2 * data[0]
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -286,7 +296,7 @@ if __name__ == "__main__":
     data_input_dim = data_input.shape[0]
 
     # Maximum sequence length
-    max_seq_length = 10
+    max_seq_length = 5
 
     # Initialize the environment
     env = SREnv(library=library, data=data, target=target, max_length=max_seq_length)
@@ -306,7 +316,7 @@ if __name__ == "__main__":
     num_batches = 5000
     num_episodes_per_batch = 10
     batch_quantile = 0.1
-    batch_size = 500
+    batch_size = 100
     gamma = 0.99
     epsilon_start = 1.0
     epsilon_end = 0.3
@@ -318,16 +328,18 @@ if __name__ == "__main__":
     logging = True
 
     # Initialize agent and target agent
-    agent = DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
-    target_agent = DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
-    target_agent.load_state_dict(agent.state_dict())
-    target_agent.eval()
-    agent.train()
+    agents = [DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length) for _ in range(max_seq_length)]
+    target_agents = [DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length) for _ in range(max_seq_length)]
+
+    for target_agent, agent in zip(target_agents, agents):
+        target_agent.load_state_dict(agent.state_dict())
+        target_agent.eval()
+        agent.train()
 
     # Train the RL model
     expression, reward, history = train_rl_model(
-        agent=agent,
-        target_agent=target_agent,
+        agents=agents,
+        target_agents=target_agents,
         env=env,
         action_symbols=action_symbols,
         symbol_to_index=symbol_to_index,
