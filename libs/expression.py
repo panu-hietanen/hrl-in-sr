@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import random
 
 class TreeExpression:
     def __init__(self, data: torch.Tensor, target: torch.Tensor) -> None:
@@ -127,3 +128,17 @@ class TreeExpression:
         self.optimized_constants = None
         self.constants_optimized = False
         self.n_constants = 0
+
+    def approx_evaluate(self, expression: list[int], n_vars: int, nodes_needed: int) -> float:
+        choices = ['C'] + ['X' + str(i) for i in range(n_vars)]
+        n = len(expression)
+        approx_expression = expression.copy()
+
+        for i in range(nodes_needed):
+            rand_symbol = random.choice(choices)
+            idx = n - (nodes_needed - i)
+            approx_expression[idx] = rand_symbol
+
+        result = self.evaluate(approx_expression)
+        self.reset()
+        return result

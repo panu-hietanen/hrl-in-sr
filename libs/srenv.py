@@ -30,16 +30,24 @@ class SREnv:
             self.done = True
             reward = self.get_reward()
         else:
-            reward = 0
+            reward = self.estimate_reward()
         return self.tree.encode(self.max_length), reward, self.done
     
     def get_reward(self) -> float:
         expression = self.tree.encode(self.max_length)
-        return 1/ (1 + self.loss(self.expression.evaluate(expression), self.target))
+        return self._squeeze(self.loss(self.expression.evaluate(expression), self.target))
     
     def loss(self, data: torch.Tensor, target: torch.Tensor) -> float:
         return F.mse_loss(data, target)
         
     def get_state(self) -> list[str]:
         return self.tree.encode(self.max_length)
-
+    
+    def _squeeze(self, x: float):
+        return 1 / (1 + x)
+    
+    def estimate_reward(self) -> float:
+        current_expression = self.tree.encode(self.max_length)
+        nodes_needed = current_expression.count('PAD')
+        evaluation = self.expression.approx_evaluate(current_expression, self.n_vars, nodes_needed)
+        return self._squeeze(self.loss(evaluation, self.target)) / nodes_needed
