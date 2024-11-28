@@ -96,6 +96,9 @@ def train_rl_model(
             # Experience replay
             replay(agent, target_agent, memory, optimizer, criterion, batch_size, gamma, data_input)
 
+            if action_symbol == 'EOS':
+                break
+
             i += 1
 
         # Decay epsilon
@@ -192,20 +195,19 @@ def evaluate_agent(
         state_encoded = next_state_encoded
         state_symbols = next_state_symbols
 
-        if i == max_seq_length and not done:
+        if (i == max_seq_length and not done) or action_symbol == 'EOS':
             state_symbols = env.reset()
             state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
             expression_actions = []
             i = 0
             r += 1
             if r > max_retries:
-                break
+                if action_symbol == 'EOS':
+                    return 'Sampling terminated', 0.0
+                return 'No expression found', 0.0
             print('restarting...')
         else:
             i += 1
-
-    if not done:
-        return 'No expression found', 0.0
 
     # Replace constant placeholders with actual values
     n_const = env.expression.n_constants
@@ -235,6 +237,7 @@ if __name__ == "__main__":
         'sin': 1,
         'cos': 1,
         'C': 0,  # Placeholder for constants
+        'EOS': 0 # End of sample
     }
 
     # Create data and target tensors

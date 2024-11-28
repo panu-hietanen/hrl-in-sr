@@ -41,6 +41,7 @@ class Tree:
         self.root: Node = None
         self.current_nodes: list[Node] = []  # Stack to keep track of nodes needing children
         self.library = library
+        self.eos = False
 
     def _create_node(self, action: str) -> Node:
         arity = self.library[action]
@@ -50,7 +51,9 @@ class Tree:
         if action not in self.library:
             raise ValueError('Ensure the action is included in the library of symbols.')
         node = self._create_node(action)
-        if self.root is None:
+        if action == 'EOS':
+            self.eos = True
+        elif self.root is None:
             self.root = node
         else:
             if self.complete():
@@ -74,6 +77,7 @@ class Tree:
     def reset(self) -> None:
         self.root = None
         self.current_nodes = []
+        self.eos = False
 
     def nodes_needed(self) -> int:
         count = 0

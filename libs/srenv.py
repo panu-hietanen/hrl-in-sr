@@ -26,7 +26,9 @@ class SREnv:
         if action not in self.library:
             raise ValueError('Ensure the action is included in the library of symbols.')
         self.tree.add_action(action)
-        if self.tree.complete():
+        if self.tree.eos:
+            reward = 0
+        elif self.tree.complete():
             self.done = True
             reward = self.get_reward()
         else:
