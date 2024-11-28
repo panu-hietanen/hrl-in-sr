@@ -114,7 +114,10 @@ def train_rl_model(
             print('Evaluating...')
             expression, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
 
-            print(f"Batch {episode} completed, Greedy Reward: {r}")
+            if expression == 'Sampling terminated' or expression == 'No expression found':
+                print(f"{expression} for batch {episode}, Greedy Reward: {r}")
+            else:
+                print(f"Batch {episode} completed, Greedy Reward: {r}")
 
             if r > best_reward:
                 best_reward = r
