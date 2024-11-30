@@ -20,9 +20,6 @@ class Node:
         nodes = []
         self._encoding(nodes, length, max_length)
         return nodes
-    
-    def nodes_needed(self) -> int:
-        return self.arity - len(self.children)
 
     def _encoding(self, nodes: list, length: int, max_length: int) -> None:
         if length > max_length:
@@ -78,9 +75,3 @@ class Tree:
         self.root = None
         self.current_nodes = []
         self.eos = False
-
-    def nodes_needed(self) -> int:
-        count = 0
-        for node in self.current_nodes:
-            count += node.nodes_needed()
-        return count
