@@ -7,11 +7,16 @@ import torch.nn.functional as F
 class SREnv:
     def __init__(self, library: dict[str, int], data: torch.Tensor, target: torch.Tensor, max_length: int = 10) -> None:
         self.library = library
+        self.action_symbols = list(self.library.keys())
         self.tree = Tree(self.library)
         self.expression = TreeExpression(data, target)
         self.done = False
         self.max_length = max_length
         self.n_vars, self.n_samples = data.shape
+
+        self.leaves = [idx for idx, value in enumerate(self.library.values()) if value == 0]
+        self.trig_symbols = [idx for idx, key in enumerate(self.library.keys()) if key == 'sin' or key == 'cos']
+
 
         self.target = target
         self.data = data
@@ -61,3 +66,14 @@ class SREnv:
                 best_result = result
 
         return best_result / nodes_needed
+    
+    def get_action_mask(self) -> torch.Tensor:
+        mask = torch.ones(len(self.library))
+        expression = self.tree.encode(self.max_length)
+        expression = [i for i in expression if i != "PAD" and i != "EOS"]
+        if not expression:
+            mask[self.leaves] = 0
+            mask[self.trig_symbols] = 0
+        elif expression[-1] == 'sin' or expression[-1] == 'cos':
+            mask[self.trig_symbols] = 0
+        return mask
