@@ -106,7 +106,6 @@ class DQNAgent(nn.Module):
             # Greedy action
             with torch.no_grad():
                 q_values = self.forward(data_input.unsqueeze(0), state.unsqueeze(0))
-                mask = mask.ge(1.0)
-                q_values = torch.masked_select(q_values, mask)  # Mask invalid actions
+                q_values = q_values[mask == 1]
                 action_idx = torch.argmax(q_values).item()
         return action_idx

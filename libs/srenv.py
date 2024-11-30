@@ -76,4 +76,4 @@ class SREnv:
             mask[self.trig_symbols] = 0
         elif expression[-1] == 'sin' or expression[-1] == 'cos':
             mask[self.trig_symbols] = 0
-        return mask
+        return mask.unsqueeze(0)
