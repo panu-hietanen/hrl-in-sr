@@ -55,6 +55,8 @@ class SREnv:
         expression = self.tree.encode(self.max_length)
         expression = [i for i in expression if i != "PAD" and i != "EOS"]
         if not expression:
+            # Remove this condition temporarily
+            return mask.unsqueeze(0)
             mask[self.leaves] = 0
             mask[self.trig_symbols] = 0
         elif expression[-1] == 'sin' or expression[-1] == 'cos':

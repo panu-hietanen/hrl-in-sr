@@ -70,7 +70,9 @@ def train_rl_model(
             i = 0
 
             while not done and i < max_seq_length:
+                mask = torch.ones(len(env.action_symbols)).unsqueeze(0)
                 mask = env.get_action_mask()
+
                 # Select action
                 action_idx = agent.act(data_input, state_encoded, epsilon, mask)
                 action_symbol = action_symbols[action_idx]
@@ -274,7 +276,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] / data[1]
+    target = 2 * data[0] + 10
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -303,13 +305,13 @@ if __name__ == "__main__":
     hidden_dim = 256
     num_batches = 5000
     num_episodes_per_batch = 10
-    batch_quantile = 0.1
+    batch_quantile = 0.15
     batch_size = 500
     gamma = 0.99
     epsilon_start = 1.0
     epsilon_end = 0.3
     epsilon_decay = 0.995
-    target_update = 10
+    target_update = 100
     memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
     batch_eval = 10
     lr = 1e-4
