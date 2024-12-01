@@ -27,7 +27,7 @@ class ReplayBuffer:
         dones = [item[4] for item in batch]
         return (
             torch.stack(states),
-            torch.tensor(actions, dtype=torch.int),
+            torch.tensor(actions, dtype=torch.int64),
             torch.tensor(rewards, dtype=torch.float32),
             torch.stack(next_states),
             torch.tensor(dones, dtype=torch.float32),
