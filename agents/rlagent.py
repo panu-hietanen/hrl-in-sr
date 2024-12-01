@@ -11,7 +11,7 @@ class ReplayBuffer:
     def push(
         self,
         state: torch.Tensor,
-        action: str,
+        action: int,
         reward: float,
         next_state: torch.Tensor,
         done: bool
@@ -27,7 +27,7 @@ class ReplayBuffer:
         dones = [item[4] for item in batch]
         return (
             torch.stack(states),
-            torch.tensor(actions, dtype=torch.long),
+            torch.tensor(actions, dtype=torch.int),
             torch.tensor(rewards, dtype=torch.float32),
             torch.stack(next_states),
             torch.tensor(dones, dtype=torch.float32),
@@ -35,11 +35,6 @@ class ReplayBuffer:
       
     def __len__(self) -> int:
         return len(self.memory)
-    
-    def prioritise(self, done: bool) -> None:
-        if not done:
-            state, action, _, next_state, _ = self.memory.pop()
-            self.memory.append((state, action, -1, next_state, False))
 
 class DQNAgent(nn.Module):
     def __init__(
@@ -75,7 +70,7 @@ class DQNAgent(nn.Module):
         self.action_size = action_size
         self.max_seq_length = max_seq_length
     
-    def forward(self, data_input: int, state: torch.Tensor) -> torch.Tensor:
+    def forward(self, data_input: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
         # Encode data
         data_embedding = self.data_encoder(data_input)
         # Encode tree expression
@@ -106,6 +101,6 @@ class DQNAgent(nn.Module):
             # Greedy action
             with torch.no_grad():
                 q_values = self.forward(data_input.unsqueeze(0), state.unsqueeze(0))
-                q_values = q_values[mask == 1]
+                q_values[mask == 0] = -float('inf')
                 action_idx = torch.argmax(q_values).item()
         return action_idx
