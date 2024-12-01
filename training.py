@@ -24,7 +24,6 @@ def train_rl_model(
     agent: DQNAgent,
     target_agent: DQNAgent,
     env: SREnv,
-    action_symbols: list[str],
     symbol_to_index: dict[str, int],
     max_seq_length: int,
     data_input: torch.Tensor,
@@ -66,10 +65,9 @@ def train_rl_model(
 
         while not done and i < max_seq_length:
             mask = env.get_action_mask()
-            # mask[[4, 5]] = 0
             # Select action
             action_idx = agent.act(data_input, state_encoded, epsilon, mask)
-            action_symbol = action_symbols[action_idx]
+            action_symbol = env.action_symbols[action_idx]
 
             try:
                 next_state_symbols, reward, done = env.step(action_symbol)
@@ -96,6 +94,9 @@ def train_rl_model(
             # Experience replay
             replay(agent, target_agent, memory, optimizer, criterion, batch_size, gamma, data_input)
 
+            if action_symbol == 'EOS':
+                break
+
             i += 1
 
         # Decay epsilon
@@ -109,9 +110,12 @@ def train_rl_model(
         # Evaluation
         if episode % ep_eval == 0:
             print('Evaluating...')
-            expression, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
+            expression, r = evaluate_agent(agent, env, symbol_to_index, max_seq_length, data_input, 0)
 
-            print(f"Batch {episode} completed, Greedy Reward: {r}")
+            if expression == 'Sampling terminated' or expression == 'No expression found':
+                print(f"{expression} for batch {episode}, Greedy Reward: {r}")
+            else:
+                print(f"Batch {episode} completed, Greedy Reward: {r}")
 
             if r > best_reward:
                 best_reward = r
@@ -160,7 +164,6 @@ def replay(agent, target_agent, memory, optimizer, criterion, batch_size, gamma,
 def evaluate_agent(
     agent: DQNAgent,
     env: SREnv,
-    action_symbols: list[str],
     symbol_to_index: dict[str, int],
     max_seq_length: int,
     data_input: torch.Tensor,
@@ -178,7 +181,7 @@ def evaluate_agent(
         with torch.no_grad():
             q_values = agent(data_input.unsqueeze(0), state_encoded.unsqueeze(0))
             action_idx = torch.argmax(q_values).item()
-        action_symbol = action_symbols[action_idx]
+        action_symbol = env.action_symbols[action_idx]
         expression_actions.append(action_symbol)
         
         try:
@@ -192,20 +195,19 @@ def evaluate_agent(
         state_encoded = next_state_encoded
         state_symbols = next_state_symbols
 
-        if i == max_seq_length and not done:
+        if (i == max_seq_length and not done) or action_symbol == 'EOS':
             state_symbols = env.reset()
             state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
             expression_actions = []
             i = 0
             r += 1
             if r > max_retries:
-                break
+                if action_symbol == 'EOS':
+                    return 'Sampling terminated', 0.0
+                return 'No expression found', 0.0
             print('restarting...')
         else:
             i += 1
-
-    if not done:
-        return 'No expression found', 0.0
 
     # Replace constant placeholders with actual values
     n_const = env.expression.n_constants
@@ -235,6 +237,7 @@ if __name__ == "__main__":
         'sin': 1,
         'cos': 1,
         'C': 0,  # Placeholder for constants
+        'EOS': 0 # End of sample
     }
 
     # Create data and target tensors
@@ -247,7 +250,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * np.cos(data[0])
+    target = 2 * data[0] + data[0] / data[1]
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -267,9 +270,7 @@ if __name__ == "__main__":
     symbol_to_index = {symbol: idx for idx, symbol in enumerate(vocab)}
     vocab_size = len(vocab)
 
-
-    action_symbols = list(library.keys())
-    action_size = len(action_symbols)
+    action_size = len(library)
 
     # Hyperparameters
     embedding_dim = 128
@@ -299,7 +300,6 @@ if __name__ == "__main__":
         agent=agent,
         target_agent=target_agent,
         env=env,
-        action_symbols=action_symbols,
         symbol_to_index=symbol_to_index,
         max_seq_length=max_seq_length,
         data_input=data_input,
@@ -320,7 +320,6 @@ if __name__ == "__main__":
     constructed_expression, total_reward = evaluate_agent(
         agent=agent,
         env=env,
-        action_symbols=action_symbols,
         data_input=data_input,
         symbol_to_index=symbol_to_index,
         max_seq_length=max_seq_length,

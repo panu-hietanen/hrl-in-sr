@@ -10,11 +10,13 @@ class SREnv:
         self.action_symbols = list(self.library.keys())
         self.tree = Tree(self.library)
         self.expression = TreeExpression(data, target)
-        self.tree = Tree(self.library)
-        self.expression = TreeExpression(data, target)
         self.done = False
         self.max_length = max_length
         self.n_vars, self.n_samples = data.shape
+
+        self.leaves = [idx for idx, value in enumerate(self.library.values()) if value == 0]
+        self.trig_symbols = [idx for idx, key in enumerate(self.library.keys()) if key == 'sin' or key == 'cos']
+
 
         self.target = target
         self.data = data
@@ -29,7 +31,9 @@ class SREnv:
         if action not in self.library:
             raise ValueError('Ensure the action is included in the library of symbols.')
         self.tree.add_action(action)
-        if self.tree.complete():
+        if self.tree.eos:
+            reward = 0
+        elif self.tree.complete():
             self.done = True
             reward = self.get_reward()
         else:
