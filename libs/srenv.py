@@ -17,7 +17,6 @@ class SREnv:
         self.leaves = [idx for idx, value in enumerate(self.library.values()) if value == 0]
         self.trig_symbols = [idx for idx, key in enumerate(self.library.keys()) if key == 'sin' or key == 'cos']
 
-
         self.target = target
         self.data = data
 

@@ -91,13 +91,13 @@ def train_rl_model(
             state_encoded = next_state_encoded
             state_symbols = next_state_symbols
 
-            # Experience replay
-            replay(agent, target_agent, memory, optimizer, criterion, batch_size, gamma, data_input)
-
             if action_symbol == 'EOS':
                 break
 
             i += 1
+
+        # Experience replay
+        replay(agent, target_agent, memory, optimizer, criterion, batch_size, gamma, data_input)
 
         # Decay epsilon
         if epsilon > epsilon_end:
@@ -237,7 +237,7 @@ if __name__ == "__main__":
         'sin': 1,
         'cos': 1,
         'C': 0,  # Placeholder for constants
-        'EOS': 0 # End of sample
+        # 'EOS': 0 # End of sample
     }
 
     # Create data and target tensors
@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] + data[0] / data[1]
+    target = 2 * data[0] + 10
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         epsilon_start=epsilon_start,
         epsilon_end=epsilon_end,
         epsilon_decay=epsilon_decay,
-        target_update=target_update,
+        # target_update=target_update,
         memory_capacity=memory_capacity,
         ep_eval=ep_eval,
         lr=lr,
