@@ -65,7 +65,7 @@ def train_rl_model(
         i = 0
 
         while not done and i < max_seq_length:
-            mask = torch.ones(len(action_symbols))
+            mask = env.get_action_mask()
             # mask[[4, 5]] = 0
             # Select action
             action_idx = agent.act(data_input, state_encoded, epsilon, mask)
