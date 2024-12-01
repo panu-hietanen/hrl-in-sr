@@ -59,3 +59,16 @@ class SREnv:
                 best_result = result
 
         return best_result / nodes_needed
+    
+    def get_action_mask(self) -> torch.Tensor:
+    mask = torch.ones(len(self.library))
+    expression = self.tree.encode(self.max_length)
+    expression = [i for i in expression if i != "PAD" and i != "EOS"]
+    if not expression:
+        mask[self.leaves] = 0
+        mask[self.trig_symbols] = 0
+    elif expression[-1] == 'sin' or expression[-1] == 'cos':
+        mask[self.trig_symbols] = 0
+    if mask.sum() == 0:
+        raise ValueError('No valid actions given.')
+    return mask.unsqueeze(0)
