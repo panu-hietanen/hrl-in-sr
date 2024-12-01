@@ -14,22 +14,22 @@ class Node:
         if not self.complete():
             self.children.append(child)
         else:
-            raise ValueError(f"Node '{self.symbol}' already has {self.arity} children.")
+            raise ValueError(f"Node '{self.symbol}' already has {self.arity} child/children.")
 
-    def encode(self, depth: int, max_depth: int) -> list:
+    def encode(self, length: int, max_length: int) -> list[str]:
         nodes = []
-        self._encoding(nodes, depth, max_depth)
+        self._encoding(nodes, length, max_length)
         return nodes
 
-    def _encoding(self, nodes: list, depth: int, max_depth: int) -> None:
-        if depth > max_depth:
+    def _encoding(self, nodes: list, length: int, max_length: int) -> None:
+        if length > max_length:
             nodes.append('PAD')
             return
         nodes.append(self.symbol)
         if self.is_leaf:
             return
         for child in self.children:
-            child._encoding(nodes, depth + 1, max_depth)
+            child._encoding(nodes, len(nodes), max_length)
         for _ in range(self.arity - len(self.children)):
             nodes.append('PAD')
 
@@ -49,25 +49,23 @@ class Tree:
         node = self._create_node(action)
         if self.root is None:
             self.root = node
-            if node.arity > 0:
-                self.current_nodes.append(node)
         else:
             if self.complete():
                 raise ValueError("Tree is already complete.")
             parent_node = self.current_nodes[-1]
             parent_node.add_child(node)
-            if node.arity > 0:
-                self.current_nodes.append(node)
             while self.current_nodes and self.current_nodes[-1].complete():
                 self.current_nodes.pop()
+        if node.arity > 0:
+            self.current_nodes.append(node)
 
     def complete(self) -> bool:
         return self.root is not None and not self.current_nodes
 
-    def encode(self, max_depth: int) -> list:
+    def encode(self, max_length: int) -> list[str]:
         if self.root is None:
-            return ['PAD'] * (2 ** max_depth - 1)
-        encoding = self.root.encode(depth=0, max_depth=max_depth)
+            return ['PAD'] * max_length
+        encoding = self.root.encode(length=0, max_length=max_length)
         return encoding
 
     def reset(self) -> None:
