@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+from copy import deepcopy
 
 from libs.srenv import SREnv
 from agents.rlagent import PPOAgent, RolloutBuffer
@@ -38,6 +39,7 @@ def compute_r_and_a(
 
 def ppo_update(
     agent: PPOAgent,
+    old_agent: PPOAgent,
     buffer: RolloutBuffer,
     data_input: torch.Tensor,
     optimizer: torch.optim.Optimizer,
@@ -58,6 +60,7 @@ def ppo_update(
         returns,
         values
     ) = buffer.sample()
+
     # For ratio computations
     old_log_probs = log_probs.detach()
 
@@ -75,26 +78,26 @@ def ppo_update(
             batch_returns = returns[batch_indices]
             batch_values = values[batch_indices]
 
-            # Forward pass with current policy
-            # Suppose you have data_input in the same dimension => adapt as needed
-            # E.g. if data_input is the same for all states, you can expand it
-            # or pass the relevant data in a single batch
-            logits, new_values = agent.forward(data_input[batch_indices], batch_states)
-            dist = torch.distributions.Categorical(logits=logits)
-            
-            new_log_probs = dist.log_prob(batch_actions)
-            entropy = dist.entropy().mean()
+            with torch.no_grad():
+                old_logits, _ = old_agent.forward(data_input[batch_indices], batch_states)
+                old_dist = torch.distributions.Categorical(logits=old_logits)
+                old_log_probs = old_dist.log_prob(batch_actions)
+
+            new_logits, new_values = agent.forward(data_input[batch_indices], batch_states)
+            new_dist = torch.distributions.Categorical(logits=new_logits)
+            new_log_probs = new_dist.log_prob(batch_actions)
+            entropy = new_dist.entropy().mean()
 
             # ratio = exp(new - old)
-            ratio = (new_log_probs - batch_old_log_probs).exp()
+            ratio = (new_log_probs - old_log_probs).exp()
 
             # clipped objective
-            unclipped = ratio * batch_advantages
-            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages
+            unclipped = ratio * batch_advantages[batch_indices]
+            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages[batch_indices]
             policy_loss = -torch.min(unclipped, clipped).mean()
 
             # value loss
-            value_loss = F.mse_loss(new_values, batch_returns)
+            value_loss = F.mse_loss(new_values, batch_returns[batch_indices])
 
             # total loss
             loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
@@ -183,8 +186,12 @@ def train_rl_model(
         returns, advantages = compute_r_and_a(memory.rewards, memory.dones, memory.values, gamma)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+        old_agent = deepcopy(agent)
+        old_agent.eval()
+
         ppo_update(
             agent,
+            old_agent,
             memory,
             data_input,
             optimizer,
@@ -341,7 +348,7 @@ def main() -> None:
     embedding_dim = 128
     hidden_dim = 256
     num_iterations = 1000
-    num_episodes_per_iteration = 10
+    num_episodes_per_iteration = 100
     batch_size = 500
     gamma = 0.99
     clip_epsilon = 0.2
