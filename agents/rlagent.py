@@ -1,45 +1,62 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import torch.nn.functional as F
+from torch.distributions import Categorical
 import random
 from collections import deque
 
 class ReplayBuffer:
-    def __init__(self, capacity: int) -> None:
-        self.memory = deque(maxlen=capacity)
-    
-    def push(
-        self,
-        state: torch.Tensor,
-        action: str,
-        reward: float,
-        next_state: torch.Tensor,
-        done: bool
-    ) -> None:
-        self.memory.append((state, action, reward, next_state, done))
-    
-    def sample(self, batch_size: int) -> tuple[torch.Tensor]:
-        batch = random.sample(self.memory, batch_size)
-        states = [item[0] for item in batch]
-        actions = [item[1] for item in batch]
-        rewards = [item[2] for item in batch]
-        next_states = [item[3] for item in batch]
-        dones = [item[4] for item in batch]
+    def __init__(self) -> None:
+        self.states = []
+        self.actions = []
+        self.log_probs = []
+        self.values = []
+        self.rewards = []
+        self.dones = []
+
+    def store(
+            self, 
+            state: torch.Tensor, 
+            action: str, 
+            log_prob: float, 
+            value: float, 
+            reward: float, 
+            done: bool
+            ) -> None:
+        """
+        Store a single timestep of data.
+        """
+        self.states.append(state)
+        self.actions.append(action)
+        self.log_probs.append(log_prob)
+        self.values.append(value)
+        self.rewards.append(reward)
+        self.dones.append(done)
+
+    def clear(self) -> None:
+        """
+        Clear buffer after an update step.
+        """
+        self.states = []
+        self.actions = []
+        self.log_probs = []
+        self.values = []
+        self.rewards = []
+        self.dones = []
+
+    def sample(self) -> tuple[list, list, list, list, list, list]:
         return (
-            torch.stack(states),
-            torch.tensor(actions, dtype=torch.long),
-            torch.tensor(rewards, dtype=torch.float32),
-            torch.stack(next_states),
-            torch.tensor(dones, dtype=torch.float32),
+            self.states, 
+            self.actions, 
+            self.log_probs, 
+            self.values, 
+            self.values, 
+            self.rewards, 
+            self.dones
         )
       
     def __len__(self) -> int:
         return len(self.memory)
-    
-    def prioritise(self, done: bool) -> None:
-        if not done:
-            state, action, _, next_state, _ = self.memory.pop()
-            self.memory.append((state, action, -1, next_state, False))
 
 class DQNAgent(nn.Module):
     def __init__(
@@ -50,7 +67,7 @@ class DQNAgent(nn.Module):
         hidden_dim: int,
         action_size: int,
         max_seq_length: int
-        ) -> None:
+    ) -> None:
         super(DQNAgent, self).__init__()
         # Encoder for data
         self.data_encoder = nn.Sequential(
@@ -70,12 +87,16 @@ class DQNAgent(nn.Module):
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.ReLU()
         )
-        # Output layer
-        self.fc = nn.Linear(hidden_dim, action_size)
+        
+        # Policy head (logits over discrete actions)
+        self.policy_head = nn.Linear(hidden_dim, action_size)
+        # Value head (estimates V(s))
+        self.value_head = nn.Linear(hidden_dim, 1)
+
         self.action_size = action_size
         self.max_seq_length = max_seq_length
     
-    def forward(self, data_input: int, state: torch.Tensor) -> torch.Tensor:
+    def forward(self, data_input: int, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # Encode data
         data_embedding = self.data_encoder(data_input)
         # Encode tree expression
@@ -84,29 +105,39 @@ class DQNAgent(nn.Module):
         tree_embedding = self.tree_encoder(x)
         # Fuse embeddings
         batch_size = tree_embedding.shape[0]
-        data_embedding = data_embedding.expand(batch_size, -1)
+        if data_embedding.dim() == 1:
+            data_embedding = data_embedding.unsqueeze(0).expand(batch_size, -1)
+        elif data_embedding.size(0) != batch_size:
+            raise ValueError("Mismatch in batch sizes between data_input and tree states.")
+        
         combined = torch.cat((data_embedding, tree_embedding), dim=1)
         fused_embedding = self.fusion(combined)
-        # Output Q-values
-        q_values = self.fc(fused_embedding)
-        return q_values
+        
+        logits = self.policy_head(fused_embedding)
+        value = self.value_head(fused_embedding).squeeze(-1)
+
+        return logits, value
 
     def act(
         self,
         data_input: torch.Tensor,
         state: torch.Tensor,
         epsilon: float,
-        mask: torch.Tensor
-        ) -> int:
-        if random.random() < epsilon:
-            # Random action
-            valid_actions = torch.where(mask)[0].tolist()
-            action_idx = random.choice(valid_actions)
-        else:
-            # Greedy action
-            with torch.no_grad():
-                q_values = self.forward(data_input.unsqueeze(0), state.unsqueeze(0))
-                mask = mask.ge(1.0)
-                q_values = torch.masked_select(q_values, mask)  # Mask invalid actions
-                action_idx = torch.argmax(q_values).item()
-        return action_idx
+        mask: torch.Tensor = None
+        ) -> tuple[int, torch.Tensor, torch.Tensor]:
+        if data_input.dim() == 1:
+            data_input = data_input.unsqueeze(0)
+        if state.dim() == 1:
+            state.unsqueeze(0)
+
+        logits, value = self.forward(data_input, state)
+
+        if mask is not None:
+            logits = logits.clone()
+            logits[0, mask == 0] = -float('inf')
+
+        dist = Categorical(logits=logits)
+        action = dist.sample()
+        log_prob = dist.log_prob(action)
+
+        return action.item(), log_prob.squeeze(0), value.squeeze(0)
