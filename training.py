@@ -5,7 +5,7 @@ import torch.optim as optim
 import numpy as np
 
 from libs.srenv import SREnv
-from agents.rlagent import PPOAgent, ReplayBuffer
+from agents.rlagent import PPOAgent, RolloutBuffer
 
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -38,7 +38,7 @@ def compute_r_and_a(
 
 def ppo_update(
     agent: PPOAgent,
-    buffer: ReplayBuffer,
+    buffer: RolloutBuffer,
     data_input: torch.Tensor,
     optimizer: torch.optim.Optimizer,
     clip_epsilon: float=0.2,
@@ -126,7 +126,7 @@ def train_rl_model(
     optimizer = optim.Adam(agent.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
-    memory = ReplayBuffer()
+    memory = RolloutBuffer()
 
     best_reward: float = -float('inf')
     best_expression: list[str] = []

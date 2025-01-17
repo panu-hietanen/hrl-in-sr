@@ -2,10 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-import random
 from collections import deque
 
-class ReplayBuffer:
+class RolloutBuffer:
     def __init__(self) -> None:
         self.states = []
         self.actions = []
