@@ -58,7 +58,7 @@ class ReplayBuffer:
     def __len__(self) -> int:
         return len(self.memory)
 
-class DQNAgent(nn.Module):
+class PPOAgent(nn.Module):
     def __init__(
         self,
         data_input_dim: int,
@@ -68,7 +68,7 @@ class DQNAgent(nn.Module):
         action_size: int,
         max_seq_length: int
     ) -> None:
-        super(DQNAgent, self).__init__()
+        super(PPOAgent, self).__init__()
         # Encoder for data
         self.data_encoder = nn.Sequential(
             nn.Linear(data_input_dim, hidden_dim),
@@ -122,7 +122,6 @@ class DQNAgent(nn.Module):
         self,
         data_input: torch.Tensor,
         state: torch.Tensor,
-        epsilon: float,
         mask: torch.Tensor = None
         ) -> tuple[int, torch.Tensor, torch.Tensor]:
         if data_input.dim() == 1:

@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 
 from libs.srenv import SREnv
-from agents.rlagent import DQNAgent, ReplayBuffer
+from agents.rlagent import PPOAgent, ReplayBuffer
 
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -19,61 +20,135 @@ def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
         state_indices = state_indices[:max_seq_length]
     return torch.tensor(state_indices, dtype=torch.long)
 
+def compute_r_and_a(
+    rewards,
+    dones,
+    values,
+    gamma = 0.99
+) -> tuple[list[float], list[float]]:
+    returns = []
+    running_return = 0
+
+    for r, d in zip(reversed(rewards), reversed(dones)):
+        running_return = r + gamma * running_return * (1-d)
+        returns.insert(0, running_return)
+    returns = torch.tensor(returns, dtype=torch.float32)
+    advantages = returns - values
+    return returns, advantages
+
+def ppo_update(
+    agent: PPOAgent,
+    buffer: ReplayBuffer,
+    data_input: torch.Tensor,
+    optimizer: torch.optim.Optimizer,
+    clip_epsilon: float=0.2,
+    value_coef: float=0.5,
+    entropy_coef: float=0.01,
+    n_epochs: int=4,
+    batch_size: int=64
+):
+    dataset_size = len(buffer)
+    indices = torch.arange(dataset_size)
+
+    (
+        states,
+        actions,
+        log_probs,
+        advantages,
+        returns,
+        values
+    ) = buffer.sample()
+    # For ratio computations
+    old_log_probs = log_probs.detach()
+
+    for epoch in range(n_epochs):
+        # Shuffle data
+        perm = indices[torch.randperm(dataset_size)]
+        for start in range(0, dataset_size, batch_size):
+            end = start + batch_size
+            batch_indices = perm[start:end]
+
+            batch_states = states[batch_indices]
+            batch_actions = actions[batch_indices]
+            batch_old_log_probs = old_log_probs[batch_indices]
+            batch_advantages = advantages[batch_indices]
+            batch_returns = returns[batch_indices]
+            batch_values = values[batch_indices]
+
+            # Forward pass with current policy
+            # Suppose you have data_input in the same dimension => adapt as needed
+            # E.g. if data_input is the same for all states, you can expand it
+            # or pass the relevant data in a single batch
+            logits, new_values = agent.forward(data_input[batch_indices], batch_states)
+            dist = torch.distributions.Categorical(logits=logits)
+            
+            new_log_probs = dist.log_prob(batch_actions)
+            entropy = dist.entropy().mean()
+
+            # ratio = exp(new - old)
+            ratio = (new_log_probs - batch_old_log_probs).exp()
+
+            # clipped objective
+            unclipped = ratio * batch_advantages
+            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages
+            policy_loss = -torch.min(unclipped, clipped).mean()
+
+            # value loss
+            value_loss = F.mse_loss(new_values, batch_returns)
+
+            # total loss
+            loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
 def train_rl_model(
-    agent: DQNAgent,
-    target_agent: DQNAgent,
+    agent: PPOAgent,
     env: SREnv,
     action_symbols: list[str],
     symbol_to_index: dict[str, int],
     max_seq_length: int,
     data_input: torch.Tensor,
-    num_batches: int=1000,
-    num_episodes_per_batch: int=10,
-    batch_quantile: float=0.1,
-    batch_size: int=250,
+    num_iterations: int=1000,
+    num_episodes_per_iteration: int=10,
     gamma: float=0.99,
-    epsilon_start: float=1.0,
-    epsilon_end: float=0.25,
-    epsilon_decay: float=0.9995,
-    target_update: int=None,
-    memory_capacity: int=None,
-    batch_eval: int=10,
+    clip_epsilon: float=0.2,
+    value_coef: float=0.5,
+    entropy_coef: float=0.01,
     lr: float=1e-4,
+    batch_size: int=64,
+    n_epochs: int=4,
+    it_eval: int=100,
     logging: bool=False
 ):
     # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
     criterion = nn.MSELoss()
-    if memory_capacity is None:
-        memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
-    memory = ReplayBuffer(memory_capacity)
 
-    if target_update is None:
-        target_update = num_batches // 10
+    memory = ReplayBuffer()
 
-    epsilon = epsilon_start
-
-    best_reward: float = 0.0
+    best_reward: float = -float('inf')
     best_expression: list[str] = []
 
     history: list[tuple[int, float]] = []
 
-    for batch in range(num_batches):
-        episodes = []
-        for episode in range(num_episodes_per_batch):
+    for iteration in range(num_iterations):
+        memory.clear()
+        episode = 0
+
+        while episode < num_episodes_per_iteration:
             state_symbols = env.reset()
             state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
             done = False
-            total_reward = 0
-            transitions = []
+            total_reward_ep = 0
             i = 0
 
             while not done and i < max_seq_length:
                 mask = torch.ones(len(action_symbols))
                 # mask[[4, 5]] = 0
                 # Select action
-                action_idx = agent.act(data_input, state_encoded, epsilon, mask)
+                action_idx, log_prob, value = agent.act(data_input, state_encoded, mask)
                 action_symbol = action_symbols[action_idx]
 
                 try:
@@ -85,99 +160,62 @@ def train_rl_model(
                     next_state_symbols = state_symbols  # Remain in the same state
 
                 next_state_encoded = encode_state(next_state_symbols, symbol_to_index, max_seq_length)
-                total_reward += reward
+                total_reward_ep += reward
 
                 # Store transition
-                transitions.append((
+                memory.store(
                     state_encoded,
                     action_idx,
+                    log_prob,
+                    value,
                     reward,
                     next_state_encoded,
                     done
-                ))
+                )
 
                 state_encoded = next_state_encoded
                 state_symbols = next_state_symbols
 
                 i += 1
 
-            if not done:
-                total_reward = -1
+            episode += 1
 
-            T = len(transitions)
+        returns, advantages = compute_r_and_a(memory.rewards, memory.dones, memory.values, gamma)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-            transitions = [
-                (
-                    t[0],  # state_encoded
-                    t[1],  # action_idx
-                    total_reward * (gamma ** (T - idx - 1)),
-                    t[3],  # next_state_encoded
-                    t[4]   # done
-                )
-                for idx, t in enumerate(transitions)
-            ]
-
-            episodes.append((transitions, total_reward))
-
-        total_rewards = [episode[1] for episode in episodes]
-        threshold = np.quantile(total_rewards, 1 - batch_quantile)
-        top_episodes = [episode[0] for episode in episodes if episode[1] >= threshold]
-
-        # Store transitions from top episodes in the replay buffer
-        for episode_transitions in top_episodes:
-            for transition in episode_transitions:
-                memory.push(*transition)
-
-        # Experience replay
-        if len(memory) >= batch_size:
-            # Sample from memory
-            states_batch, actions_batch, rewards_batch, next_states_batch, dones_batch = memory.sample(batch_size)
-            # data_batch = random.sample(data_input, batch_size)
-
-            try:
-                # Compute current Q-values
-                q_values = agent(data_input, states_batch)
-                q_values = q_values.gather(1, actions_batch.unsqueeze(1)).squeeze(1)
-
-                # Compute target Q-values
-                with torch.no_grad():
-                    next_q_values = target_agent(data_input, next_states_batch).max(dim=1)[0]
-                    target_q_values = rewards_batch + gamma * next_q_values * (1 - dones_batch)
-
-                # Compute loss
-                loss = criterion(q_values, target_q_values)
-
-                # Optimize the model
-                optimizer.zero_grad()
-                loss.backward()
-
-                torch.nn.utils.clip_grad_norm_(agent.parameters(), max_norm=1.0)
-
-                optimizer.step()
-            except Exception as e:
-                print(f'Training failed due to {e}. Skipping this iteration...')
-
-        # Decay epsilon
-        if epsilon > epsilon_end:
-            epsilon *= epsilon_decay
-
-        # Update target network
-        if batch % target_update == 0:
-            target_agent.load_state_dict(agent.state_dict())
+        ppo_update(
+            agent,
+            memory,
+            data_input,
+            optimizer,
+            clip_epsilon,
+            value_coef,
+            entropy_coef,
+            n_epochs,
+            batch_size,
+        )
 
         # Evaluation
-        if batch % batch_eval == 0:
+        if iteration % it_eval == 0:
             print('Evaluating...')
-            expression, r = evaluate_agent(agent, env, action_symbols, symbol_to_index, max_seq_length, data_input, 0)
+            expression, r = evaluate_agent(
+                agent, 
+                env, 
+                action_symbols, 
+                symbol_to_index, 
+                max_seq_length, 
+                data_input, 
+                0
+            )
 
-            print(f"Batch {batch} completed, Greedy Reward: {r}")
+            print(f"Batch {iteration} completed, Greedy Reward: {r}")
 
             if r > best_reward:
                 best_reward = r
                 best_expression = expression
 
             if logging:
-                history.append((batch, reward))
+                history.append((iteration, reward))
 
             if round(float(r), 3) == 1:
                 print(f'Found expression! Stopping early...')
@@ -185,7 +223,7 @@ def train_rl_model(
     return best_expression, best_reward, history
 
 def evaluate_agent(
-    agent: DQNAgent,
+    agent: PPOAgent,
     env: SREnv,
     action_symbols: list[str],
     symbol_to_index: dict[str, int],
@@ -204,8 +242,8 @@ def evaluate_agent(
 
     while not done:
         with torch.no_grad():
-            q_values = agent(data_input.unsqueeze(0), state_encoded.unsqueeze(0))
-            action_idx = torch.argmax(q_values).item()
+            logits, _value = agent.forward(data_input.unsqueeze(0), state_encoded.unsqueeze(0))
+            action_idx = torch.argmax(logits).item()
         action_symbol = action_symbols[action_idx]
         expression_actions.append(action_symbol)
         
@@ -249,7 +287,7 @@ def evaluate_agent(
     constructed_expression = ' '.join(expression_actions)
     return constructed_expression, total_reward
 
-if __name__ == "__main__":
+def main() -> None:
     # Device configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -302,49 +340,41 @@ if __name__ == "__main__":
     # Hyperparameters
     embedding_dim = 128
     hidden_dim = 256
-    num_batches = 5000
-    num_episodes_per_batch = 10
-    batch_quantile = 0.1
+    num_iterations = 1000
+    num_episodes_per_iteration = 10
     batch_size = 500
     gamma = 0.99
-    epsilon_start = 1.0
-    epsilon_end = 0.3
-    epsilon_decay = 0.995
-    target_update = 10
-    memory_capacity = max_seq_length * num_episodes_per_batch * num_batches
-    batch_eval = 10
+    clip_epsilon = 0.2
+    value_coef = 0.5
+    entropy_coef = 0.01
+    n_epochs = 4
+    it_eval = 10
     lr = 1e-4
     logging = False
 
     # Initialize agent and target agent
-    agent = DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
-    target_agent = DQNAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
-    target_agent.load_state_dict(agent.state_dict())
-    target_agent.eval()
+    agent = PPOAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
     agent.train()
 
     # Train the RL model
     expression, reward, history = train_rl_model(
         agent=agent,
-        target_agent=target_agent,
         env=env,
         action_symbols=action_symbols,
         symbol_to_index=symbol_to_index,
         max_seq_length=max_seq_length,
         data_input=data_input,
-        num_batches=num_batches,
-        num_episodes_per_batch=num_episodes_per_batch,
-        batch_quantile=batch_quantile,
-        batch_size=batch_size,
+        num_iterations=num_iterations,
+        num_episodes_per_iteration=num_episodes_per_iteration,
         gamma=gamma,
-        epsilon_start=epsilon_start,
-        epsilon_end=epsilon_end,
-        epsilon_decay=epsilon_decay,
-        target_update=target_update,
-        memory_capacity=memory_capacity,
-        batch_eval=batch_eval,
+        clip_epsilon=clip_epsilon,
+        value_coef=value_coef,
+        entropy_coef=entropy_coef,
         lr=lr,
-        logging=logging,
+        batch_size=batch_size,
+        n_epochs=n_epochs,
+        it_eval=it_eval,
+        logging=logging
     )
 
     # Evaluate the agent
@@ -352,9 +382,9 @@ if __name__ == "__main__":
         agent=agent,
         env=env,
         action_symbols=action_symbols,
-        data_input=data_input,
         symbol_to_index=symbol_to_index,
         max_seq_length=max_seq_length,
+        data_input=data_input,
     )
 
     print(f"Best Training Expression: '{expression}', reward = {reward}")
@@ -368,3 +398,6 @@ if __name__ == "__main__":
         plt.ylabel("Reward")
         plt.title("Greedy Reward Over Time")
         plt.savefig(f'plots/Training_history_{datetime.now()}.png')
+
+if __name__ == "__main__":
+    main()
