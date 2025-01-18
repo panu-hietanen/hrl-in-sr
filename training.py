@@ -22,18 +22,13 @@ def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
     return torch.tensor(state_indices, dtype=torch.long)
 
 def compute_r_and_a(
-    memory: RolloutBuffer,
+    values: torch.Tensor,
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
     gamma = 0.99
 ) -> tuple[torch.Tensor, torch.Tensor]:
     returns = []
     running_return = 0
-
-    (
-        _, _, _,
-        values,
-        rewards,
-        dones
-    ) = memory.sample()
 
     for r, d in zip(reversed(rewards), reversed(dones)):
         running_return = r + gamma * running_return * (1-d.item())
@@ -51,6 +46,7 @@ def ppo_update(
     clip_epsilon: float=0.2,
     value_coef: float=0.5,
     entropy_coef: float=0.01,
+    gamma: float=0.99,
     n_epochs: int=4,
     batch_size: int=64
 ):
@@ -61,9 +57,9 @@ def ppo_update(
         states,
         actions,
         log_probs,
-        advantages,
-        returns,
-        values
+        values,
+        rewards,
+        dones
     ) = buffer.sample()
 
     for epoch in range(n_epochs):
@@ -75,9 +71,12 @@ def ppo_update(
 
             batch_states = states[batch_indices]
             batch_actions = actions[batch_indices]
-            batch_advantages = advantages[batch_indices]
-            batch_returns = returns[batch_indices]
             batch_values = values[batch_indices]
+            batch_rewards = rewards[batch_indices]
+            batch_dones = dones[batch_indices]
+
+            batch_returns, batch_advantages = compute_r_and_a(batch_values, batch_rewards, batch_dones, gamma)
+            batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
 
             with torch.no_grad():
                 old_logits, _ = old_agent.forward(data_input, batch_states)
@@ -182,9 +181,6 @@ def train_rl_model(
 
             episode += 1
 
-        returns, advantages = compute_r_and_a(memory, gamma)
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
         old_agent = deepcopy(agent)
         old_agent.eval()
 
@@ -197,6 +193,7 @@ def train_rl_model(
             clip_epsilon,
             value_coef,
             entropy_coef,
+            gamma,
             n_epochs,
             batch_size,
         )
@@ -311,7 +308,7 @@ def main() -> None:
 
     # Create data and target tensors
     n_samples = 1000
-    n_vars = 2
+    n_vars = 1
 
     for i in range(n_vars):
         var_name = f'X{i}'
@@ -319,12 +316,10 @@ def main() -> None:
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0] / data[1]
+    target = 2 * data[0]
 
     # Precompute data input
     data_flat = data.view(-1)
-    target_flat = target.view(-1)
-    # data_input = torch.cat([data_flat, target_flat], dim=0)
     data_input = (data_flat - data_flat.mean()) / (data_flat.std() + 1e-8)
     data_input_dim = data_input.shape[0]
 
