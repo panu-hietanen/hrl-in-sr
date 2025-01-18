@@ -55,7 +55,7 @@ class RolloutBuffer:
         )
       
     def __len__(self) -> int:
-        return len(self.memory)
+        return len(self.states)
 
 class PPOAgent(nn.Module):
     def __init__(
@@ -126,7 +126,7 @@ class PPOAgent(nn.Module):
         if data_input.dim() == 1:
             data_input = data_input.unsqueeze(0)
         if state.dim() == 1:
-            state.unsqueeze(0)
+            state = state.unsqueeze(0)
 
         logits, value = self.forward(data_input, state)
 
