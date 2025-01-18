@@ -22,19 +22,24 @@ def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
     return torch.tensor(state_indices, dtype=torch.long)
 
 def compute_r_and_a(
-    rewards,
-    dones,
-    values,
+    memory: RolloutBuffer,
     gamma = 0.99
-) -> tuple[list[float], list[float]]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     returns = []
     running_return = 0
 
+    (
+        _, _, _,
+        values,
+        rewards,
+        dones
+    ) = memory.sample()
+
     for r, d in zip(reversed(rewards), reversed(dones)):
-        running_return = r + gamma * running_return * (1-d)
+        running_return = r + gamma * running_return * (1-d.item())
         returns.insert(0, running_return)
-    returns = torch.tensor(returns, dtype=torch.float32)
-    advantages = returns - values
+    returns = torch.tensor(returns, dtype=torch.float32).detach()
+    advantages = (returns - values).detach()
     return returns, advantages
 
 def ppo_update(
@@ -61,9 +66,6 @@ def ppo_update(
         values
     ) = buffer.sample()
 
-    # For ratio computations
-    old_log_probs = log_probs.detach()
-
     for epoch in range(n_epochs):
         # Shuffle data
         perm = indices[torch.randperm(dataset_size)]
@@ -73,17 +75,16 @@ def ppo_update(
 
             batch_states = states[batch_indices]
             batch_actions = actions[batch_indices]
-            batch_old_log_probs = old_log_probs[batch_indices]
             batch_advantages = advantages[batch_indices]
             batch_returns = returns[batch_indices]
             batch_values = values[batch_indices]
 
             with torch.no_grad():
-                old_logits, _ = old_agent.forward(data_input[batch_indices], batch_states)
+                old_logits, _ = old_agent.forward(data_input, batch_states)
                 old_dist = torch.distributions.Categorical(logits=old_logits)
                 old_log_probs = old_dist.log_prob(batch_actions)
 
-            new_logits, new_values = agent.forward(data_input[batch_indices], batch_states)
+            new_logits, new_values = agent.forward(data_input, batch_states)
             new_dist = torch.distributions.Categorical(logits=new_logits)
             new_log_probs = new_dist.log_prob(batch_actions)
             entropy = new_dist.entropy().mean()
@@ -92,12 +93,12 @@ def ppo_update(
             ratio = (new_log_probs - old_log_probs).exp()
 
             # clipped objective
-            unclipped = ratio * batch_advantages[batch_indices]
-            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages[batch_indices]
+            unclipped = ratio * batch_advantages
+            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages
             policy_loss = -torch.min(unclipped, clipped).mean()
 
             # value loss
-            value_loss = F.mse_loss(new_values, batch_returns[batch_indices])
+            value_loss = F.mse_loss(new_values, batch_returns)
 
             # total loss
             loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
@@ -127,7 +128,6 @@ def train_rl_model(
 ):
     # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
-    criterion = nn.MSELoss()
 
     memory = RolloutBuffer()
 
@@ -172,7 +172,6 @@ def train_rl_model(
                     log_prob,
                     value,
                     reward,
-                    next_state_encoded,
                     done
                 )
 
@@ -183,7 +182,7 @@ def train_rl_model(
 
             episode += 1
 
-        returns, advantages = compute_r_and_a(memory.rewards, memory.dones, memory.values, gamma)
+        returns, advantages = compute_r_and_a(memory, gamma)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         old_agent = deepcopy(agent)
