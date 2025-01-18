@@ -14,14 +14,14 @@ class RolloutBuffer:
         self.dones = []
 
     def store(
-            self, 
-            state: torch.Tensor, 
-            action: str, 
-            log_prob: float, 
-            value: float, 
-            reward: float, 
-            done: bool
-            ) -> None:
+        self, 
+        state: torch.Tensor,
+        action: int,
+        log_prob: torch.Tensor,
+        value: torch.Tensor,
+        reward: float,
+        done: bool
+    ) -> None:
         """
         Store a single timestep of data.
         """
@@ -43,17 +43,26 @@ class RolloutBuffer:
         self.rewards = []
         self.dones = []
 
-    def sample(self) -> tuple[list, list, list, list, list, list]:
-        return (
-            self.states, 
-            self.actions, 
-            self.log_probs, 
-            self.values, 
-            self.values, 
-            self.rewards, 
-            self.dones
-        )
-      
+    def sample(self):
+        """
+        Convert stored lists into PyTorch tensors.
+        Returns:
+          states:  (N, ...)  [stacked from stored states]
+          actions: (N,)      [long tensor of action indices]
+          log_probs: (N,)    [float tensor]
+          values:   (N,)     [value predictions at each state]
+          rewards:  (N,)     [float tensor of rewards]
+          dones:    (N,)     [bool or float tensor indicating done]
+        """
+        states = torch.stack(self.states)
+        actions = torch.tensor(self.actions, dtype=torch.long)
+        log_probs = torch.stack(self.log_probs).squeeze(-1)
+        values = torch.stack(self.values).squeeze(-1)
+        rewards = torch.tensor(self.rewards, dtype=torch.float32)
+        dones = torch.tensor(self.dones, dtype=torch.bool)
+
+        return states, actions, log_probs, values, rewards, dones
+
     def __len__(self) -> int:
         return len(self.states)
 
