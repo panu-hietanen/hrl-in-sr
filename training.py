@@ -249,7 +249,7 @@ def evaluate_agent(
     constructed_expression = ' '.join(expression_actions)
     return constructed_expression, total_reward
 
-if __name__ == "__main__":
+def main() -> None:
     # Device configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -368,3 +368,6 @@ if __name__ == "__main__":
         plt.ylabel("Reward")
         plt.title("Greedy Reward Over Time")
         plt.savefig(f'plots/Training_history_{datetime.now()}.png')
+
+if __name__ == "__main__":
+    main()
