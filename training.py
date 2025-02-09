@@ -7,40 +7,15 @@ from copy import deepcopy
 
 from libs.srenv import SREnv
 from agents.rlagent import PPOAgent, RolloutBuffer
+from libs.utils import risk_seeking_filter, encode_state, compute_r_and_a, combine_rollout_buffers
 
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
-    # Convert symbols to indices
-    state_indices = [symbol_to_index[symbol] for symbol in state]
-    # Pad sequence
-    if len(state_indices) < max_seq_length:
-        state_indices += [symbol_to_index['PAD']] * (max_seq_length - len(state_indices))
-    else:
-        state_indices = state_indices[:max_seq_length]
-    return torch.tensor(state_indices, dtype=torch.long)
-
-def compute_r_and_a(
-    values: torch.Tensor,
-    rewards: torch.Tensor,
-    dones: torch.Tensor,
-    gamma = 0.99
-) -> tuple[torch.Tensor, torch.Tensor]:
-    returns = []
-    running_return = 0
-
-    for r, d in zip(reversed(rewards), reversed(dones)):
-        running_return = r + gamma * running_return * (1-d.item())
-        returns.insert(0, running_return)
-    returns = torch.tensor(returns, dtype=torch.float32).detach()
-    advantages = (returns - values).detach()
-    return returns, advantages
-
 def ppo_update(
     agent: PPOAgent,
     old_agent: PPOAgent,
-    buffer: RolloutBuffer,
+    memory: list[RolloutBuffer],
     data_input: torch.Tensor,
     optimizer: torch.optim.Optimizer,
     clip_epsilon: float=0.2,
@@ -48,11 +23,9 @@ def ppo_update(
     entropy_coef: float=0.01,
     gamma: float=0.99,
     n_epochs: int=4,
-    batch_size: int=64
+    batch_size: int=64,
+    risk_quantile: float = 0.2
 ):
-    dataset_size = len(buffer)
-    indices = torch.arange(dataset_size)
-
     (
         states,
         actions,
@@ -60,7 +33,10 @@ def ppo_update(
         values,
         rewards,
         dones
-    ) = buffer.sample()
+    ) = combine_rollout_buffers(memory)
+
+    dataset_size = len(states)
+    indices = torch.arange(dataset_size)
 
     for epoch in range(n_epochs):
         # Shuffle data
@@ -78,6 +54,12 @@ def ppo_update(
             batch_returns, batch_advantages = compute_r_and_a(batch_values, batch_rewards, batch_dones, gamma)
             batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
 
+            # Risk seeking policy gradient
+            threshold = torch.quantile(batch_returns, 1 - risk_quantile)
+
+            risk_weights = torch.where(batch_returns >= threshold, torch.tensor(risk_factor), torch.tensor(1.0))
+            weighted_advantages = batch_advantages * risk_weights
+
             with torch.no_grad():
                 old_logits, _ = old_agent.forward(data_input, batch_states)
                 old_dist = torch.distributions.Categorical(logits=old_logits)
@@ -88,18 +70,18 @@ def ppo_update(
             new_log_probs = new_dist.log_prob(batch_actions)
             entropy = new_dist.entropy().mean()
 
-            # ratio = exp(new - old)
+            # Compute the probability ratio
             ratio = (new_log_probs - old_log_probs).exp()
 
-            # clipped objective
-            unclipped = ratio * batch_advantages
-            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages
+            # Clipped surrogate objective
+            unclipped = ratio * weighted_advantages
+            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * weighted_advantages
             policy_loss = -torch.min(unclipped, clipped).mean()
 
-            # value loss
+            # Value loss (mean-squared error between new value predictions and returns)
             value_loss = F.mse_loss(new_values, batch_returns)
 
-            # total loss
+            # Total loss (policy loss + weighted value loss - entropy bonus)
             loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
 
             optimizer.zero_grad()
@@ -123,12 +105,14 @@ def train_rl_model(
     batch_size: int=64,
     n_epochs: int=4,
     it_eval: int=100,
+    risk_quantile: float=0.2,
     logging: bool=False
 ):
     # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
 
-    memory = RolloutBuffer()
+    memory = []
+    episode_transitions = RolloutBuffer()
 
     best_reward: float = -float('inf')
     best_expression: list[str] = []
@@ -136,10 +120,12 @@ def train_rl_model(
     history: list[tuple[int, float]] = []
 
     for iteration in range(num_iterations):
-        memory.clear()
+        memory = []
         episode = 0
 
         while episode < num_episodes_per_iteration:
+            episode_transitions.clear()
+
             state_symbols = env.reset()
             state_encoded = encode_state(state_symbols, symbol_to_index, max_seq_length)
             done = False
@@ -165,7 +151,7 @@ def train_rl_model(
                 total_reward_ep += reward
 
                 # Store transition
-                memory.store(
+                episode_transitions.store(
                     state_encoded,
                     action_idx,
                     log_prob,
@@ -179,10 +165,13 @@ def train_rl_model(
 
                 i += 1
 
+            memory.append(episode_transitions)
             episode += 1
 
         old_agent = deepcopy(agent)
         old_agent.eval()
+
+        memory = risk_seeking_filter(memory, risk_quantile)
 
         ppo_update(
             agent,
