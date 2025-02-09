@@ -316,7 +316,7 @@ def main() -> None:
 
     diff = [torch.zeros(n_samples) + i for i in range(n_vars)]
     data = torch.randn([n_vars, n_samples]) + torch.stack(diff)  # Shape: (n_vars, n_samples)
-    target = 2 * data[0]
+    target = 2 * data[0] + 3
 
     # Precompute data input
     data_flat = data.view(-1)
@@ -344,14 +344,14 @@ def main() -> None:
     num_iterations = 1000
     num_episodes_per_iteration = 100
     batch_size = 500
-    gamma = 0.99
+    gamma = 0.9
     clip_epsilon = 0.2
     value_coef = 0.5
     entropy_coef = 0.01
     n_epochs = 4
     it_eval = 10
-    lr = 1e-4
-    logging = False
+    lr = 1e-2
+    logging = True
 
     # Initialize agent and target agent
     agent = PPOAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
