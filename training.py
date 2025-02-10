@@ -24,7 +24,6 @@ def ppo_update(
     gamma: float=0.99,
     n_epochs: int=4,
     batch_size: int=64,
-    risk_quantile: float = 0.2
 ):
     (
         states,
@@ -55,10 +54,10 @@ def ppo_update(
             batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
 
             # Risk seeking policy gradient
-            threshold = torch.quantile(batch_returns, 1 - risk_quantile)
+            # threshold = torch.quantile(batch_returns, 1 - risk_quantile)
 
-            risk_weights = torch.where(batch_returns >= threshold, torch.tensor(risk_factor), torch.tensor(1.0))
-            weighted_advantages = batch_advantages * risk_weights
+            # risk_weights = torch.where(batch_returns >= threshold, torch.tensor(risk_factor), torch.tensor(1.0))
+            # weighted_advantages = batch_advantages * risk_weights
 
             with torch.no_grad():
                 old_logits, _ = old_agent.forward(data_input, batch_states)
@@ -74,8 +73,8 @@ def ppo_update(
             ratio = (new_log_probs - old_log_probs).exp()
 
             # Clipped surrogate objective
-            unclipped = ratio * weighted_advantages
-            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * weighted_advantages
+            unclipped = ratio * batch_advantages
+            clipped = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * batch_advantages
             policy_loss = -torch.min(unclipped, clipped).mean()
 
             # Value loss (mean-squared error between new value predictions and returns)
@@ -108,6 +107,7 @@ def train_rl_model(
     risk_quantile: float=0.2,
     logging: bool=False
 ):
+    agent.train()
     # Initialize optimizer, loss function, and replay buffer
     optimizer = optim.Adam(agent.parameters(), lr=lr)
 
@@ -199,6 +199,7 @@ def train_rl_model(
                 data_input, 
                 0
             )
+            agent.train()
 
             print(f"Batch {iteration} completed, Greedy Reward: {r}")
 
@@ -332,7 +333,7 @@ def main() -> None:
     hidden_dim = 256
     num_iterations = 1000
     num_episodes_per_iteration = 100
-    batch_size = 500
+    batch_size = 100
     gamma = 0.9
     clip_epsilon = 0.2
     value_coef = 0.5

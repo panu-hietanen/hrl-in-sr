@@ -12,8 +12,8 @@ def risk_seeking_filter(
     ]
 
     threshold = np.quantile(final_rewards, 1 - risk_quantile)
-    indexes = np.where(final_rewards >= threshold) #This is currently a tuple
-    return memory[indexes.squeeze()]
+    indexes = np.where(final_rewards >= threshold)
+    return [memory[i] for i in indexes[0].tolist()]
 
 def encode_state(state, symbol_to_index: dict[str, int], max_seq_length: int):
     # Convert symbols to indices
@@ -57,7 +57,6 @@ def combine_rollout_buffers(
     all_dones = []
     
     for buf in buffer_list:
-        # Convert the stored lists in each buffer to tensors and add to the accumulator lists
         all_states.append(torch.stack(buf.states))  # shape: (num_steps, ...)
         all_actions.append(torch.tensor(buf.actions, dtype=torch.long))  # shape: (num_steps,)
         all_log_probs.append(torch.stack(buf.log_probs).squeeze(-1))  # shape: (num_steps,)
@@ -65,13 +64,12 @@ def combine_rollout_buffers(
         all_rewards.append(torch.tensor(buf.rewards, dtype=torch.float32))  # shape: (num_steps,)
         all_dones.append(torch.tensor(buf.dones, dtype=torch.bool))  # shape: (num_steps,)
     
-    # Concatenate the tensors from all buffers along the first dimension.
     states = torch.cat(all_states, dim=0)
-    actions = torch.cat(all_actions, dim=0)
-    log_probs = torch.cat(all_log_probs, dim=0)
-    values = torch.cat(all_values, dim=0)
-    rewards = torch.cat(all_rewards, dim=0)
-    dones = torch.cat(all_dones, dim=0)
+    actions = torch.tensor(all_actions)
+    log_probs = torch.tensor(all_log_probs)
+    values = torch.tensor(all_values)
+    rewards = torch.tensor(all_rewards)
+    dones = torch.tensor(all_dones)
     
     return states, actions, log_probs, values, rewards, dones
 
