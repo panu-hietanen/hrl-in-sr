@@ -333,7 +333,7 @@ def main() -> None:
     hidden_dim = 256
     num_iterations = 1000
     num_episodes_per_iteration = 100
-    batch_size = 100
+    batch_size = 32
     gamma = 0.9
     clip_epsilon = 0.2
     value_coef = 0.5

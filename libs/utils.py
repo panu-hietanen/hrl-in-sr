@@ -65,7 +65,7 @@ def combine_rollout_buffers(
         all_dones.append(torch.tensor(buf.dones, dtype=torch.bool))  # shape: (num_steps,)
     
     states = torch.cat(all_states, dim=0)
-    actions = torch.tensor(all_actions)
+    actions = torch.cat(all_actions, dim=0)
     log_probs = torch.tensor(all_log_probs)
     values = torch.tensor(all_values)
     rewards = torch.tensor(all_rewards)
