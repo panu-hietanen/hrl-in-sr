@@ -8,7 +8,7 @@ def risk_seeking_filter(
     risk_quantile: float = 0.2,
 ):
     final_rewards: list = [
-        episode.sample()[4][-1].item() for episode in memory
+        episode.rewards[-1] for episode in memory
     ]
 
     threshold = np.quantile(final_rewards, 1 - risk_quantile)
@@ -36,8 +36,8 @@ def compute_r_and_a(
 
     for i, (r, d) in enumerate(zip(reversed(rewards), reversed(dones))):
         running_return = r + gamma * running_return * (1-d.item())
-        returns.insert(0, running_return)
-
+        returns.append(running_return)
+    returns.reverse()
     returns = torch.tensor(returns, dtype=torch.float32).detach()
     advantages = (returns - values).detach()
     return returns, advantages

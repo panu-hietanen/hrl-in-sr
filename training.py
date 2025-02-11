@@ -53,12 +53,6 @@ def ppo_update(
 
             batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
 
-            # Risk seeking policy gradient
-            # threshold = torch.quantile(batch_returns, 1 - risk_quantile)
-
-            # risk_weights = torch.where(batch_returns >= threshold, torch.tensor(risk_factor), torch.tensor(1.0))
-            # weighted_advantages = batch_advantages * risk_weights
-
             with torch.no_grad():
                 old_logits, _ = old_agent.forward(data_input, batch_states)
                 old_dist = torch.distributions.Categorical(logits=old_logits)
@@ -105,7 +99,8 @@ def train_rl_model(
     n_epochs: int=4,
     it_eval: int=100,
     risk_quantile: float=0.2,
-    logging: bool=False
+    logging: bool=False,
+    verbose: bool=False
 ):
     agent.train()
     # Initialize optimizer, loss function, and replay buffer
@@ -165,8 +160,13 @@ def train_rl_model(
 
                 i += 1
 
+            if i == max_seq_length and not done:
+                episode_transitions.penalise()
+
             memory.append(episode_transitions)
             episode += 1
+
+            
 
         old_agent = deepcopy(agent)
         old_agent.eval()
@@ -202,13 +202,15 @@ def train_rl_model(
             agent.train()
 
             print(f"Batch {iteration} completed, Greedy Reward: {r}")
+            if verbose:
+                print(f"Current Expression: {expression}")
 
             if r > best_reward:
                 best_reward = r
                 best_expression = expression
 
             if logging:
-                history.append((iteration, reward))
+                history.append((iteration, r))
 
             if round(float(r), 3) == 1:
                 print(f'Found expression! Stopping early...')
@@ -342,6 +344,7 @@ def main() -> None:
     it_eval = 10
     lr = 1e-2
     logging = True
+    verbose = True
 
     # Initialize agent and target agent
     agent = PPOAgent(data_input_dim, vocab_size, embedding_dim, hidden_dim, action_size, max_seq_length)
@@ -365,7 +368,8 @@ def main() -> None:
         batch_size=batch_size,
         n_epochs=n_epochs,
         it_eval=it_eval,
-        logging=logging
+        logging=logging,
+        verbose=verbose
     )
 
     # Evaluate the agent

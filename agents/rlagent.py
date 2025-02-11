@@ -12,6 +12,9 @@ class RolloutBuffer:
         self.rewards = []
         self.dones = []
 
+    def __len__(self) -> int:
+        return len(self.states)
+    
     def store(
         self, 
         state: torch.Tensor,
@@ -61,9 +64,13 @@ class RolloutBuffer:
         dones = torch.tensor(self.dones, dtype=torch.bool)
 
         return states, actions, log_probs, values, rewards, dones
+    
+    def penalise(self) -> None:
+        """
+        Penalise the last stored timestep.
+        """
+        self.rewards[-1] = -1.0
 
-    def __len__(self) -> int:
-        return len(self.states)
 
 class PPOAgent(nn.Module):
     def __init__(
