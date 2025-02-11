@@ -59,17 +59,17 @@ def combine_rollout_buffers(
     for buf in buffer_list:
         all_states.append(torch.stack(buf.states))  # shape: (num_steps, ...)
         all_actions.append(torch.tensor(buf.actions, dtype=torch.long))  # shape: (num_steps,)
-        all_log_probs.append(torch.stack(buf.log_probs).squeeze(-1))  # shape: (num_steps,)
-        all_values.append(torch.stack(buf.values).squeeze(-1))  # shape: (num_steps,)
+        all_log_probs.append(torch.stack(buf.log_probs))  # shape: (num_steps,)
+        all_values.append(torch.stack(buf.values))  # shape: (num_steps,)
         all_rewards.append(torch.tensor(buf.rewards, dtype=torch.float32))  # shape: (num_steps,)
         all_dones.append(torch.tensor(buf.dones, dtype=torch.bool))  # shape: (num_steps,)
     
     states = torch.cat(all_states, dim=0)
     actions = torch.cat(all_actions, dim=0)
-    log_probs = torch.tensor(all_log_probs)
-    values = torch.tensor(all_values)
-    rewards = torch.tensor(all_rewards)
-    dones = torch.tensor(all_dones)
+    log_probs = torch.cat(all_log_probs, dim=0)
+    values = torch.cat(all_values, dim=0)
+    rewards = torch.cat(all_rewards, dim=0)
+    dones = torch.cat(all_dones, dim=0)
     
     return states, actions, log_probs, values, rewards, dones
 

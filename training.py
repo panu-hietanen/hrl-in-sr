@@ -36,6 +36,8 @@ def ppo_update(
 
     dataset_size = len(states)
     indices = torch.arange(dataset_size)
+    
+    returns, advantages = compute_r_and_a(values, rewards, dones, gamma)
 
     for epoch in range(n_epochs):
         # Shuffle data
@@ -46,11 +48,9 @@ def ppo_update(
 
             batch_states = states[batch_indices]
             batch_actions = actions[batch_indices]
-            batch_values = values[batch_indices]
-            batch_rewards = rewards[batch_indices]
-            batch_dones = dones[batch_indices]
+            batch_returns = returns[batch_indices]
+            batch_advantages = advantages[batch_indices]
 
-            batch_returns, batch_advantages = compute_r_and_a(batch_values, batch_rewards, batch_dones, gamma)
             batch_advantages = (batch_advantages - batch_advantages.mean()) / (batch_advantages.std() + 1e-8)
 
             # Risk seeking policy gradient
